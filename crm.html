@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RF·CRM — Roblox Acquisition Console</title>
+<style>
+  :root{
+    --bg:#0a0d13; --panel:#10141d; --panel2:#141a26; --line:#1d2532; --line2:#26304200;
+    --txt:#e7eaf1; --mut:#8b94a7; --mut2:#5c6577;
+    --acc:#6366f1; --acc2:#22d3ee; --good:#34d399; --warn:#f59e0b; --bad:#f87171;
+    --gold:#fbbf24; --sidebar:222px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:radial-gradient(1200px 600px at 70% -10%, #131a2a 0%, var(--bg) 55%);color:var(--txt);
+       font:14px/1.45 "Segoe UI",Inter,system-ui,sans-serif;overflow:hidden}
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  input,select,textarea{font:inherit;color:var(--txt)}
+  a{color:var(--acc2);text-decoration:none} a:hover{text-decoration:underline}
+  ::-webkit-scrollbar{width:10px;height:10px} ::-webkit-scrollbar-thumb{background:#232c3d;border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  #app{display:flex;height:100vh}
+  /* ---------- sidebar ---------- */
+  #sidebar{width:var(--sidebar);min-width:var(--sidebar);background:linear-gradient(180deg,#0d1119,#0b0e15);
+           border-right:1px solid var(--line);display:flex;flex-direction:column;padding:14px 10px}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 16px}
+  .brand .logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:15px;
+               background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;box-shadow:0 4px 18px #6366f14d}
+  .brand b{font-size:15px;letter-spacing:.4px} .brand span{display:block;font-size:10.5px;color:var(--mut)}
+  nav{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+  nav button{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;color:var(--mut);
+             text-align:left;font-weight:600;font-size:13.5px;transition:.15s}
+  nav button:hover{background:#151c29;color:var(--txt)}
+  nav button.on{background:linear-gradient(90deg,#6366f126,#22d3ee0d);color:#fff;box-shadow:inset 0 0 0 1px #6366f147}
+  nav button .ic{width:18px;text-align:center;font-size:15px}
+  nav button .n{margin-left:auto;background:#1d2532;color:var(--mut);border-radius:99px;font-size:11px;padding:1px 8px}
+  nav button.on .n{background:#6366f14d;color:#fff}
+  .side-foot{margin-top:auto;padding:10px;font-size:11px;color:var(--mut2);line-height:1.6}
+  .side-foot b{color:var(--mut)}
+
+  /* ---------- main ---------- */
+  main{flex:1;display:flex;flex-direction:column;min-width:0}
+  #topbar{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--line);background:#0b0f17cc}
+  #topbar h1{font-size:17px;font-weight:700;letter-spacing:.2px}
+  #topbar .sub{font-size:11.5px;color:var(--mut2);margin-top:1px}
+  .spacer{flex:1}
+  #globalSearch{width:340px;background:#0d1220;border:1px solid var(--line);border-radius:10px;padding:8px 12px;outline:none;transition:.15s}
+  #globalSearch:focus{border-color:#6366f188;box-shadow:0 0 0 3px #6366f122}
+  .btn{display:inline-flex;align-items:center;gap:7px;background:#161d2b;border:1px solid var(--line);
+       border-radius:9px;padding:8px 13px;font-weight:600;font-size:13px;transition:.15s;white-space:nowrap}
+  .btn:hover{border-color:#2c3850;background:#1a2233}
+  .btn.pri{background:linear-gradient(135deg,var(--acc),#4f46e5);border-color:#6366f155;color:#fff}
+  .btn.pri:hover{filter:brightness(1.12)}
+  .btn.good{background:#0d2a20;border-color:#1c4d3a;color:var(--good)}
+  .btn.bad{background:#2a1214;border-color:#4d1c1c;color:var(--bad)}
+  .btn.sm{padding:5px 9px;font-size:12px;border-radius:8px}
+  .btn:disabled{opacity:.45;cursor:default}
+  #lastSync{font-size:11.5px;color:var(--mut2)}
+  #view{flex:1;overflow-y:auto;padding:20px 22px}
+
+  /* ---------- cards / dashboard ---------- */
+  .grid{display:grid;gap:14px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .card{background:linear-gradient(180deg,var(--panel),#0e121b);border:1px solid var(--line);border-radius:14px;padding:15px 16px}
+  .card .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.8px;font-weight:700}
+  .card .v{font-size:26px;font-weight:800;margin-top:5px;letter-spacing:-.5px}
+  .card .s{font-size:11.5px;color:var(--mut2);margin-top:3px}
+  .card.acc .v{background:linear-gradient(135deg,#a5b4fc,#67e8f9);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .two{grid-template-columns:1fr 1fr} .three{grid-template-columns:1.2fr 1fr}
+  @media(max-width:1150px){.two,.three{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .panel h3{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--mut);margin-bottom:12px;font-weight:700}
+  .bar{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .bar .lb{width:118px;font-size:12px;color:var(--mut);font-weight:600}
+  .bar .tr{flex:1;height:9px;background:#161d2b;border-radius:6px;overflow:hidden}
+  .bar .fl{height:100%;border-radius:6px;transition:width .5s}
+  .bar .n{width:44px;text-align:right;font-size:12px;font-weight:700}
+  .mini{display:flex;flex-direction:column;gap:8px}
+  .mini .row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:10px;background:#0e1320;border:1px solid var(--line)}
+  .mini .row:hover{border-color:#2c3850}
+  .mini .t{flex:1;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini .m{font-size:11px;color:var(--mut)}
+
+  /* ---------- badges/pills ---------- */
+  .tier{font-size:10.5px;font-weight:800;letter-spacing:.6px;padding:3px 8px;border-radius:6px;display:inline-block}
+  .pill{font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;display:inline-flex;align-items:center;gap:5px}
+  .dot{width:6px;height:6px;border-radius:99px;background:currentColor}
+  .tag{font-size:10.5px;color:var(--mut);background:#161d2b;border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+  .live{color:var(--good);font-weight:700} .dead{color:var(--bad)}
+
+  /* ---------- table ---------- */
+  .filters{display:flex;gap:9px;align-items:center;margin-bottom:13px;flex-wrap:wrap}
+  .filters input,.filters select{background:#0d1220;border:1px solid var(--line);border-radius:9px;padding:8px 11px;outline:none}
+  .filters input:focus,.filters select:focus{border-color:#6366f188}
+  .filters input{min-width:230px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);cursor:pointer;user-select:none}
+  table{width:100%;border-collapse:separate;border-spacing:0 6px}
+  thead th{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut2);text-align:left;
+           padding:4px 10px;font-weight:700;cursor:pointer;user-select:none;white-space:nowrap}
+  thead th:hover{color:var(--mut)}
+  thead th.sorted{color:var(--acc2)}
+  tbody tr{background:var(--panel);transition:.12s;cursor:pointer}
+  tbody tr:hover{background:#151b29;outline:1px solid #26304299}
+  tbody td{padding:10px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  tbody td:first-child{border-left:1px solid var(--line);border-radius:11px 0 0 11px}
+  tbody td:last-child{border-right:1px solid var(--line);border-radius:0 11px 11px 0}
+  td.num{font-variant-numeric:tabular-nums;font-weight:600}
+  td .title{font-weight:600;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  td .under{font-size:11px;color:var(--mut2)}
+  .copy{border:1px solid transparent;border-radius:6px;padding:2px 5px;font-size:11px;color:var(--mut2);cursor:copy}
+  .copy:hover{color:var(--acc2);border-color:#2c3850;background:#0d1220}
+  .iconbtn{width:27px;height:27px;display:inline-grid;place-items:center;border-radius:7px;border:1px solid var(--line);
+           color:var(--mut);font-size:13px;margin-left:4px}
+  .iconbtn:hover{color:var(--txt);border-color:#2c3850;background:#1a2233}
+  .iconbtn.del:hover{color:var(--bad);border-color:#4d1c1c;background:#2a1214}
+  select.status{appearance:none;-webkit-appearance:none;background:#0d1220;border:1px solid var(--line);border-radius:99px;
+                padding:4px 20px 4px 10px;font-size:11px;font-weight:700;cursor:pointer;outline:none;
+                background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6'%3E%3Cpath d='M0 0l4 6 4-6z' fill='%235c6577'/%3E%3C/svg%3E");
+                background-repeat:no-repeat;background-position:right 7px center}
+  .empty{padding:60px 0;text-align:center;color:var(--mut2);font-size:13.5px}
+
+  /* ---------- drawer ---------- */
+  #backdrop{position:fixed;inset:0;background:#05070bcc;backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:.2s;z-index:40}
+  #backdrop.on{opacity:1;pointer-events:auto}
+  #drawer{position:fixed;top:0;right:-560px;width:560px;max-width:94vw;height:100vh;background:#0d1119;
+          border-left:1px solid var(--line);z-index:50;transition:right .22s ease;display:flex;flex-direction:column}
+  #drawer.on{right:0}
+  .d-head{padding:18px 20px 12px;border-bottom:1px solid var(--line)}
+  .d-head .tt{font-size:17px;font-weight:800;display:flex;align-items:center;gap:10px}
+  .d-body{flex:1;overflow-y:auto;padding:16px 20px 26px;display:flex;flex-direction:column;gap:14px}
+  .sec{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px}
+  .sec h4{font-size:10.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--mut);margin-bottom:10px;font-weight:700}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .kv .it{background:#0e1320;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+  .kv .it .k{font-size:10px;color:var(--mut2);text-transform:uppercase;letter-spacing:.6px;font-weight:700}
+  .kv .it .v{font-size:13.5px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums;word-break:break-all}
+  .linkrow{display:flex;align-items:center;gap:8px;padding:7px 9px;background:#0e1320;border:1px solid var(--line);
+           border-radius:9px;margin-top:7px;font-size:12.5px}
+  .linkrow .u{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--acc2)}
+  .statusrow{display:flex;flex-wrap:wrap;gap:6px}
+  .statusrow button{padding:6px 12px;border-radius:99px;border:1px solid var(--line);background:#0e1320;
+                    font-size:12px;font-weight:700;color:var(--mut)}
+  .statusrow button.on{color:#fff;border-color:currentColor}
+  textarea.notes{width:100%;min-height:86px;background:#0e1320;border:1px solid var(--line);border-radius:9px;
+                 padding:10px;outline:none;resize:vertical;font-size:13px}
+  textarea.notes:focus{border-color:#6366f188}
+  .desc{font-size:12.5px;color:var(--mut);white-space:pre-wrap;max-height:150px;overflow-y:auto;line-height:1.5}
+  .hist{font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:4px}
+  .hist .h{display:flex;gap:8px;align-items:baseline}
+  .hist .ts{color:var(--mut2);font-size:11px;min-width:118px}
+
+  /* ---------- toasts / modal ---------- */
+  #toasts{position:fixed;bottom:18px;right:18px;display:flex;flex-direction:column;gap:8px;z-index:90}
+  .toast{background:#111827;border:1px solid #2c3850;border-left:3px solid var(--acc2);border-radius:10px;
+         padding:11px 15px;font-size:13px;font-weight:600;box-shadow:0 8px 30px #00000080;animation:tin .2s}
+  .toast.err{border-left-color:var(--bad)} .toast.ok{border-left-color:var(--good)}
+  @keyframes tin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+  #modal{position:fixed;inset:0;z-index:80;display:none;place-items:center;background:#05070bcc;backdrop-filter:blur(3px)}
+  #modal.on{display:grid}
+  .modal-card{width:420px;max-width:92vw;background:#10151f;border:1px solid #2c3850;border-radius:16px;padding:20px;box-shadow:0 20px 60px #000000a0}
+  .modal-card h3{font-size:15px;margin-bottom:8px}
+  .modal-card p{font-size:13px;color:var(--mut);margin-bottom:14px}
+  .modal-card input{width:100%;background:#0d1220;border:1px solid var(--line);border-radius:9px;padding:9px 11px;outline:none;margin-bottom:14px}
+  .modal-foot{display:flex;gap:8px;justify-content:flex-end}
+  .spin{display:inline-block;animation:rot 1s linear infinite}@keyframes rot{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><div class="logo">RF</div><div><b>RF·CRM</b><span>Roblox acquisition console</span></div></div>
+    <nav id="nav">
+      <button data-v="dashboard"><span class="ic">◈</span>Dashboard</button>
+      <button data-v="pipeline"><span class="ic">▤</span>Pipeline<span class="n" id="navPipeline">0</span></button>
+      <button data-v="radar"><span class="ic">◎</span>Early radar<span class="n" id="navRadar">0</span></button>
+      <button data-v="deleted"><span class="ic">⌫</span>Deleted<span class="n" id="navDeleted">0</span></button>
+      <button data-v="activity"><span class="ic">≡</span>Activity</button>
+      <button data-v="settings"><span class="ic">⚙</span>Settings &amp; Tools</button>
+    </nav>
+    <div class="side-foot">
+      <b>Watcher:</b> every 90 min<br><b>CRM:</b> 127.0.0.1:8780<br>
+      <span id="footCounts"></span>
+    </div>
+  </aside>
+  <main>
+    <div id="topbar">
+      <div><h1 id="viewTitle">Dashboard</h1><div class="sub" id="viewSub"></div></div>
+      <div class="spacer"></div>
+      <input id="globalSearch" placeholder="Search games, owners, discords, notes…   ( / )">
+      <button class="btn pri" id="syncBtn"><span id="syncIc">⟳</span> Sync</button>
+      <span id="lastSync"></span>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<div id="backdrop"></div>
+<aside id="drawer"></aside>
+<div id="toasts"></div>
+<div id="modal"></div>
+
+<script>
+"use strict";
+/* ============================== state ============================== */
+let S = null;                 // {games, deleted, settings, activity, meta, statuses}
+let VIEW = "dashboard";
+let F = { q: "", status: "", tier: "", discordOnly: false, sort: "priority_score", dir: -1 };
+let OPEN_UID = null;          // game open in drawer
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => (n === "" || n === null || n === undefined || isNaN(Number(n))) ? "—" : Number(n).toLocaleString("en-US");
+
+const STATUS_META = {
+  new:{l:"New",c:"#60a5fa"}, contacted:{l:"Contacted",c:"#f59e0b"}, awaiting:{l:"Awaiting reply",c:"#a78bfa"},
+  negotiating:{l:"Negotiating",c:"#fb923c"}, delayed:{l:"Delayed",c:"#22d3ee"},
+  acquired:{l:"Acquired",c:"#34d399"}, rejected:{l:"Rejected",c:"#f87171"}};
+const TIER_META = {
+  "1-BEST (MUST BUY)":{l:"BEST",c:"#fbbf24"}, "2-GREAT":{l:"GREAT",c:"#22d3ee"},
+  "3-GOOD":{l:"GOOD",c:"#60a5fa"}, "4-MID":{l:"MID",c:"#94a3b8"}};
+
+function tierBadge(t){
+  if(!t) return `<span class="tier" style="background:#1a2130;color:#5c6577">UNRANKED</span>`;
+  const m = TIER_META[t] || {l:t,c:"#94a3b8"};
+  return `<span class="tier" style="background:${m.c}1c;color:${m.c};border:1px solid ${m.c}40">${m.l}</span>`;
+}
+function statusPill(s){
+  const m = STATUS_META[s] || STATUS_META.new;
+  return `<span class="pill" style="background:${m.c}14;color:${m.c};border:1px solid ${m.c}33"><span class="dot"></span>${m.l}</span>`;
+}
+function statusSelect(g){
+  const opts = S.statuses.map(s => `<option value="${s}" ${s===g.status?"selected":""}>${STATUS_META[s].l}</option>`).join("");
+  return `<select class="status" data-act="status" data-uid="${g.universe_id}" style="color:${STATUS_META[g.status]?.c||"#fff"};border-color:${(STATUS_META[g.status]?.c||"#888")}55">${opts}</select>`;
+}
+function rel(ts){
+  if(!ts) return "";
+  const d = (Date.now() - new Date(ts).getTime())/1000;
+  if(d < 60) return "just now";
+  if(d < 3600) return Math.floor(d/60)+"m ago";
+  if(d < 86400) return Math.floor(d/3600)+"h ago";
+  return Math.floor(d/86400)+"d ago";
+}
+function checkedTs(g){
+  return g.checked_at_utc ? new Date(g.checked_at_utc.length===16 ? g.checked_at_utc.replace(" ","T")+"Z" : g.checked_at_utc) : null;
+}
+function isStale(g){
+  const t = checkedTs(g);
+  return t && (Date.now() - t.getTime()) > 86400000;   // older than 24h
+}
+function countdown(iso){
+  const ms = new Date(iso) - Date.now();
+  if(ms <= 0) return "eligible now";
+  const h = Math.floor(ms/3600000), d = Math.floor(h/24);
+  return d ? `${d}d ${h%24}h` : `${h}h ${Math.floor(ms%3600000/60000)}m`;
+}
+function toast(msg, cls=""){
+  const t = document.createElement("div");
+  t.className = "toast " + cls; t.textContent = msg;
+  $("#toasts").appendChild(t);
+  setTimeout(()=>{t.style.opacity="0";t.style.transition=".3s";setTimeout(()=>t.remove(),320)}, 2600);
+}
+async function copy(text, label="Copied"){
+  try{ await navigator.clipboard.writeText(text); }
+  catch(e){
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove();
+  }
+  toast(label + ": " + (text.length > 44 ? text.slice(0,44)+"…" : text));
+}
+async function api(path, body){
+  const r = await fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)} : {});
+  return r.json();
+}
+function confirmModal(title, text, confirmLabel, onOk){
+  $("#modal").innerHTML = `<div class="modal-card"><h3>${esc(title)}</h3><p>${esc(text)}</p>
+    <div class="modal-foot"><button class="btn" id="mCancel">Cancel</button>
+    <button class="btn bad" id="mOk">${esc(confirmLabel)}</button></div></div>`;
+  $("#modal").classList.add("on");
+  $("#mCancel").onclick = () => $("#modal").classList.remove("on");
+  $("#mOk").onclick = async () => { $("#modal").classList.remove("on"); await onOk(); };
+}
+
+/* ============================== data ============================== */
+async function fmtDur(s){
+  s = Math.max(0, Math.floor(s||0));
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return h ? `${h}h ${m}m` : (m ? `${m}m` : `${s}s`);
+}
+async function refresh(){
+  S = await api("/api/state");
+  $("#navPipeline").textContent = S.games.filter(g => (g.status||"new") !== "rejected").length;
+  $("#navRadar").textContent = (S.radar || []).length;
+  $("#navDeleted").textContent = S.deleted.length;
+  $("#footCounts").textContent = `${S.games.length} games · ${S.games.filter(g=>g.has_discord==="YES").length} live discords`;
+  renderRuntime();
+  render();
+}
+function renderRuntime(){
+  const rt = S.runtime;
+  if(!rt){ $("#lastSync").textContent = S.meta.last_sync ? "synced " + rel(S.meta.last_sync) : "never synced"; return; }
+  const w = rt.watcher || {};
+  const L = w.last_line || "";
+  let phase = "starting…";
+  if(/Outside golden hours/i.test(L)) phase = "waiting for golden window";
+  else if(/Searching \d+ keywords/.test(L)) phase = "searching keywords…";
+  else if(/\((\d+)\/(\d+)\)/.test(L)) { const m2 = L.match(/\((\d+)\/(\d+)\)/); phase = `keywords ${m2[1]}/${m2[2]}`; }
+  else if(/Pulling exact stats/i.test(L)) phase = "pulling exact stats";
+  else if(/Snowball/i.test(L)) phase = "snowballing recommendations";
+  else if(/Verifying/i.test(L)) phase = "verifying matches";
+  else if(/Enriching/i.test(L)) phase = "enriching matches";
+  else if(/Done in/i.test(L)) phase = "pass complete";
+  else if(/excluded do-not-buy/.test(L)) phase = "classifying";
+  const live = w.log_age_s !== null && w.log_age_s < 600;
+  const ageTxt = w.log_age_s !== null ? rel(new Date(Date.now() - w.log_age_s * 1000).toISOString()) : "never";
+  const golden = rt.in_window
+    ? `<span style="color:var(--good)">● inside golden window</span>`
+    : `next window at ${rt.next_window ? new Date(rt.next_window).toTimeString().slice(0,5) : "?"}`;
+  $("#lastSync").innerHTML =
+    `<div style="text-align:right;font-size:11px;line-height:1.55;color:var(--mut2)">
+      <div>${golden} (12-16, 20-02)</div>
+      <div>watcher <span style="color:${live ? "var(--good)" : "var(--mut2)"}">${live ? "●" : "○"}</span> ${esc(phase)} · active ${ageTxt}</div>
+      <div>CRM up ${fmtDur(rt.crm_uptime_s)} · synced ${S.meta.last_sync ? rel(S.meta.last_sync) : "never"}</div>
+    </div>`;
+}
+function gameById(uid){ return S.games.find(g => String(g.universe_id) === String(uid)); }
+
+/* ============================== views ============================== */
+const TITLES = {
+  dashboard:["Dashboard","Pipeline health at a glance"],
+  pipeline:["Pipeline","Every qualified game — click a row for full details"],
+  radar:["Early radar","Near-misses (50+ CCU) — risers graduate to the pipeline automatically"],
+  deleted:["Deleted","Hidden games — they can return after the cooldown"],
+  activity:["Activity","Everything that happened, newest first"],
+  settings:["Settings & Tools","Tune the system, add games by hand, export data"]};
+
+function setView(v){
+  VIEW = v;
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  $("#viewTitle").textContent = TITLES[v][0];
+  $("#viewSub").textContent = TITLES[v][1];
+  render();
+}
+function render(){
+  if(!S){ $("#view").innerHTML = `<div class="empty">loading…</div>`; return; }
+  ({dashboard:renderDashboard, pipeline:renderPipeline, radar:renderRadar, deleted:renderDeleted,
+    activity:renderActivity, settings:renderSettings})[VIEW]();
+}
+
+/* ---------- dashboard ---------- */
+function renderDashboard(){
+  const G = S.games;
+  const count = s => G.filter(g => (g.status||"new") === s).length;
+  const live = G.filter(g => g.has_discord === "YES");
+  const totalCcu = G.reduce((a,g)=>a+(+g.active||0),0);
+  const totalMembers = live.reduce((a,g)=>a+(+g.discord_members||0),0);
+  const tiers = ["1-BEST (MUST BUY)","2-GREAT","3-GOOD","4-MID"].map(t => ({t, n: G.filter(g=>g.tier===t).length}));
+  const maxT = Math.max(1, ...tiers.map(x=>x.n));
+  const stats = S.statuses.map(s => ({s, n: count(s)}));
+  const maxS = Math.max(1, ...stats.map(x=>x.n));
+  const contactedOpen = G.filter(g => ["contacted","awaiting","negotiating"].includes(g.status||"new"));
+  const top = [...G].sort((a,b)=>(b.priority_score||0)-(a.priority_score||0)).slice(0,6);
+
+  $("#view").innerHTML = `
+  <div class="grid cards">
+    <div class="card acc"><div class="k">Tracked games</div><div class="v">${G.length}</div><div class="s">${live.length} with live Discord</div></div>
+    <div class="card"><div class="k">New</div><div class="v" style="color:#60a5fa">${count("new")}</div><div class="s">waiting for first contact</div></div>
+    <div class="card"><div class="k">In outreach</div><div class="v" style="color:#f59e0b">${contactedOpen.length}</div><div class="s">contacted · awaiting · negotiating</div></div>
+    <div class="card"><div class="k">Delayed</div><div class="v" style="color:#22d3ee">${count("delayed")}</div><div class="s">recheck later</div></div>
+    <div class="card"><div class="k">Total CCU</div><div class="v" style="color:#34d399">${fmt(totalCcu)}</div><div class="s">combined active players</div></div>
+    <div class="card"><div class="k">Discord reach</div><div class="v" style="color:#a78bfa">${fmt(totalMembers)}</div><div class="s">members across ${live.length} servers</div></div>
+  </div>
+  <div class="grid three" style="margin-top:14px">
+    <div class="panel"><h3>Tier distribution</h3>
+      ${tiers.map(({t,n}) => `<div class="bar"><div class="lb">${TIER_META[t].l}</div>
+        <div class="tr"><div class="fl" style="width:${n/maxT*100}%;background:${TIER_META[t].c}"></div></div>
+        <div class="n">${n}</div></div>`).join("")}
+      <h3 style="margin-top:18px">Status funnel</h3>
+      ${stats.map(({s,n}) => `<div class="bar"><div class="lb">${STATUS_META[s].l}</div>
+        <div class="tr"><div class="fl" style="width:${n/maxS*100}%;background:${STATUS_META[s].c}"></div></div>
+        <div class="n">${n}</div></div>`).join("")}
+    </div>
+    <div class="panel"><h3>Top targets by priority</h3>
+      <div class="mini">${top.length ? top.map(g => `
+        <div class="row" data-open="${g.universe_id}" style="cursor:pointer">
+          ${tierBadge(g.tier)}<div class="t">${esc(g.title)}</div>
+          <div class="m">${fmt(g.active)} ccu · ${g.has_discord==="YES" ? "✔ discord" : "no discord"}</div>
+        </div>`).join("") : `<div class="empty">No games yet — hit Sync</div>`}
+      </div>
+    </div>
+    <div class="panel"><h3>Recent activity</h3>
+      <div class="mini">${S.activity.slice(0,9).map(a => `
+        <div class="row"><div class="t" style="font-weight:500;color:var(--mut)">${esc(a.msg)}</div>
+        <div class="m">${rel(a.ts)}</div></div>`).join("") || `<div class="empty">Nothing yet</div>`}
+      </div>
+    </div>
+  </div>`;
+  $("#view").querySelectorAll("[data-open]").forEach(el => el.onclick = () => openDrawer(el.dataset.open));
+}
+
+/* ---------- pipeline ---------- */
+function pipelineRows(){
+  let G = S.games;
+  const q = F.q.trim().toLowerCase();
+  if(q) G = G.filter(g => [g.title,g.creator_name,g.owner_name,g.discord_server,g.discord_url,
+                           g.discord_via,g.other_links,g.notes,
+                            g.youtube,g.tiktok,g.twitter_x,g.genre].join(" ").toLowerCase().includes(q));
+  if(F.status) G = G.filter(g => (g.status||"new") === F.status);
+  else G = G.filter(g => (g.status||"new") !== "rejected");   // rejected hidden unless explicitly filtered
+  if(F.tier === "none") G = G.filter(g => !g.tier);
+  else if(F.tier) G = G.filter(g => (g.tier||"") === F.tier);
+  if(F.discordOnly) G = G.filter(g => g.has_discord === "YES");
+  return G.sort((a,b) => {
+    let va = a[F.sort], vb = b[F.sort];
+    if(typeof va === "string" || typeof vb === "string"){ va = String(va||"").toLowerCase(); vb = String(vb||"").toLowerCase(); return va.localeCompare(vb) * F.dir; }
+    return ((va??0) - (vb??0)) * F.dir;
+  });
+}
+function renderPipeline(){
+  const rows = pipelineRows();
+  const th = (key, label) => `<th data-sort="${key}" class="${F.sort===key?"sorted":""}">${label} ${F.sort===key ? (F.dir<0?"▾":"▴") : ""}</th>`;
+  $("#view").innerHTML = `
+  <div class="filters">
+    <input id="fQ" placeholder="Filter this view…" value="${esc(F.q)}">
+    <select id="fStatus"><option value="">All statuses</option>${S.statuses.map(s=>`<option ${F.status===s?"selected":""} value="${s}">${STATUS_META[s].l}</option>`).join("")}</select>
+    <select id="fTier"><option value="">All tiers</option>${Object.keys(TIER_META).map(t=>`<option ${F.tier===t?"selected":""} value="${t}">${TIER_META[t].l}</option>`).join("")}<option ${F.tier==="none"?"selected":""} value="none">Unranked</option></select>
+    <label class="chk"><input type="checkbox" id="fDisc" ${F.discordOnly?"checked":""}> Discord only</label>
+    <div class="spacer"></div>
+    <button class="btn" id="addBtn">＋ Add game</button>
+    <button class="btn" id="exportBtn">⤓ Export CSV</button>
+    <button class="btn bad" id="delShownBtn" title="Delete every game in this filtered view (rejected excluded)">✕ Delete shown</button>
+    <span class="tag">${rows.length} shown</span>
+  </div>
+  <table><thead><tr>
+    ${th("priority_score","Score")}${th("tier","Tier")}${th("status","Status")}
+    ${th("title","Game")}${th("active","CCU")}${th("visits","Visits")}${th("discord_members","Discord")}
+    ${th("owner_name","Owner")}${th("age_days","Age")}${th("checked_at_utc","Checked")}
+    <th></th>
+  </tr></thead><tbody>
+  ${rows.map(g => `
+    <tr data-open="${g.universe_id}">
+      <td class="num" style="color:var(--acc2)">${g.priority_score ?? "—"}</td>
+      <td>${tierBadge(g.tier)}</td>
+      <td>${statusSelect(g)}</td>
+      <td><div class="title" title="${esc(g.title)}">${esc(g.title)}</div>
+          <div class="under">${esc(g.creator_type||"?")} · ${esc(g.creator_name||"—")}</div></td>
+      <td class="num">${fmt(g.active)}<div class="under">peak ${fmt(g.peak_active_seen)}</div></td>
+      <td class="num">${fmt(g.visits)}</td>
+      <td>${g.has_discord==="YES"
+            ? `<span class="live">✔</span> <b>${fmt(g.discord_members)}</b> <span class="under">mem</span>
+               ${g.discord_url ? `<button class="copy" data-copy="${esc(g.discord_url)}" title="${esc(g.discord_url)}">copy ⧉</button>` : ""}`
+            : (g.discord_url ? `<span class="dead">✖ dead link</span>` : `<span style="color:var(--mut2)">—</span>`)}</td>
+      <td><div class="title" style="max-width:150px" title="${esc(g.owner_name)}">${esc(g.owner_name||"—")}</div>
+          ${g.owner_roblox_signal==="YES" ? '<span class="tag">roblox dev</span>' : ""}</td>
+      <td class="num">${g.age_days === "" || g.age_days === undefined ? "—" : g.age_days + "d"}</td>
+      <td class="under">${rel(checkedTs(g))}${isStale(g) ? ' <span style="color:var(--warn)" title="data older than 24h — refresh it">⚠ stale</span>' : ""}</td>
+      <td style="white-space:nowrap">
+        <button class="iconbtn" data-act="open" data-uid="${g.universe_id}" title="Open in Roblox">↗</button>
+        <button class="iconbtn" data-act="check" data-uid="${g.universe_id}" title="Refresh stats now">⟳</button>
+        <button class="iconbtn del" data-act="del" data-uid="${g.universe_id}" title="Delete (7-day cooldown)">✕</button>
+      </td>
+    </tr>`).join("")}
+  </tbody></table>
+  ${rows.length ? "" : `<div class="empty">No games match. Try Sync or clear the filters.</div>`}`;
+
+  $("#fQ").oninput = e => { F.q = e.target.value; render(); $("#fQ").focus(); const i = F.q.length; $("#fQ").setSelectionRange(i,i); };
+  $("#fStatus").onchange = e => { F.status = e.target.value; render(); };
+  $("#fTier").onchange = e => { F.tier = e.target.value; render(); };
+  $("#fDisc").onchange = e => { F.discordOnly = e.target.checked; render(); };
+  $("#addBtn").onclick = () => addModal();
+  $("#exportBtn").onclick = exportCsv;
+  $("#delShownBtn").onclick = () => {
+    const ids = rows.map(g => +g.universe_id).filter(Boolean);
+    if(!ids.length) return toast("Nothing shown to delete", "err");
+    confirmModal(`Delete ${ids.length} game${ids.length > 1 ? "s" : ""}?`,
+      `Every game in this filtered view leaves the pipeline and can only come back after ${S.settings.cooldown_days} days. Rejected games are permanent and stay untouched.`,
+      `Delete ${ids.length}`, async () => {
+        const r = await api("/api/delete_all", {universe_ids: ids});
+        r.error ? toast(r.error, "err") : toast(`Deleted ${r.deleted ?? 0} games`, "ok");
+        refresh();
+      });
+  };
+  document.querySelectorAll("#view th[data-sort]").forEach(el => el.onclick = () => {
+    const k = el.dataset.sort;
+    if(F.sort === k) F.dir *= -1; else { F.sort = k; F.dir = (k === "title" || k === "tier" || k === "status" || k === "owner_name") ? 1 : -1; }
+    render();
+  });
+}
+
+/* ---------- early radar ---------- */
+function radarTrend(e){
+  if((e.sightings || 1) <= 1) return `<span class="tag">● new</span>`;
+  const d = (e.active || 0) - (e.first_active || 0);
+  if(d > 0) return `<span class="tag" style="color:var(--good)">▲ rising +${fmt(d)}</span>`;
+  if(d < 0) return `<span class="tag" style="color:var(--bad)">▼ cooling ${fmt(d)}</span>`;
+  return `<span class="tag">━ flat</span>`;
+}
+function renderRadar(){
+  const R = [...(S.radar || [])].sort((a,b) => (b.active || 0) - (a.active || 0));
+  const rising = R.filter(e => (e.sightings || 1) > 1 && (e.active || 0) > (e.first_active || 0)).length;
+  $("#view").innerHTML = `
+  <div class="filters">
+    <span style="color:var(--mut);font-size:13px">Games at <b>50+ CCU</b> that haven't hit a tier yet.
+    A riser here today is a pipeline match tomorrow — <b>Track</b> pulls it in with full Discord enrichment now.</span>
+    <div class="spacer"></div>
+    <button class="btn sm bad" id="radarClearBtn">✕ Clear radar</button>
+    <span class="tag">${R.length} tracked · ${rising} rising</span>
+  </div>
+  ${R.length ? `<table><thead><tr><th>Game</th><th>CCU now</th><th>Peak</th><th>Trend</th>
+    <th>Visits</th><th>Seen</th><th>Last seen</th><th></th></tr></thead><tbody>
+    ${R.map(e => `
+      <tr data-uid="${e.universe_id}" style="cursor:default">
+        <td><div class="title" title="${esc(e.title)}">${esc(e.title)}</div>
+            <div class="under">${esc(e.creator || "—")} · universe ${e.universe_id}</div></td>
+        <td class="num">${fmt(e.active)}</td>
+        <td class="num">${fmt(e.peak_active)}</td>
+        <td>${radarTrend(e)}</td>
+        <td class="num">${fmt(e.visits)}</td>
+        <td class="num">${e.sightings || 1}×</td>
+        <td class="under">${rel(e.last_seen ? (e.last_seen.length === 16 ? e.last_seen.replace(" ","T") + "Z" : e.last_seen) : null)}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm pri" data-track="${esc(e.game_url)}" title="Full enrichment + add to pipeline">＋ Track</button>
+          <button class="iconbtn" data-openurl="${esc(e.game_url)}" title="Open in Roblox">↗</button>
+        </td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">Radar is empty — it fills up on the next watcher pass (needs <b>--watchlist-file</b> in start_finder.bat).</div>`}`;
+  document.querySelectorAll("[data-track]").forEach(b => b.onclick = async e => {
+    e.stopPropagation(); await doAdd(b.dataset.track);
+  });
+  const rc = $("#radarClearBtn");
+  if(rc) rc.onclick = () => {
+    if(!R.length) return toast("Radar is already empty", "err");
+    confirmModal(`Clear early radar?`,
+      `${R.length} entr${R.length > 1 ? "ies" : "y"} removed. It refills automatically on the next watcher pass.`,
+      "Clear", async () => {
+        const r = await api("/api/radar_clear", {});
+        r.error ? toast(r.error, "err") : toast(`Cleared ${r.cleared ?? 0} entries`, "ok");
+        refresh();
+      });
+  };
+  document.querySelectorAll("[data-openurl]").forEach(b => b.onclick = e => {
+    e.stopPropagation(); window.open(b.dataset.openurl, "_blank");
+  });
+}
+
+/* ---------- deleted ---------- */
+function renderDeleted(){
+  const D = [...S.deleted].sort((a,b) => b.deleted_at < a.deleted_at ? -1 : 1);
+  $("#view").innerHTML = `
+  <div class="filters">
+    <span style="color:var(--mut);font-size:13px">Deleted games are invisible to Sync until their cooldown
+    (${S.settings.cooldown_days} days) expires — then the watcher re-admits them automatically if it finds them again.</span>
+    <div class="spacer"></div>
+    <button class="btn" id="purgeExp">Purge expired records</button>
+  </div>
+  ${D.length ? `<table><thead><tr><th>Game</th><th>Deleted</th><th>Can return</th><th>Status</th><th></th></tr></thead><tbody>
+    ${D.map(d => {
+      const eligible = new Date(d.eligible_at) <= new Date();
+      return `<tr data-uid="${d.universe_id}" style="cursor:default">
+        <td><div class="title">${esc(d.title)}</div><div class="under">universe ${d.universe_id}</div></td>
+        <td class="under">${rel(d.deleted_at)}</td>
+        <td class="num" style="color:${eligible ? "var(--good)" : "var(--warn)"}">${eligible ? "eligible now" : "in " + countdown(d.eligible_at)}</td>
+        <td>${eligible ? `<span class="tag" style="color:var(--good)">re-fetch allowed</span>` : `<span class="tag" style="color:var(--warn)">cooldown</span>`}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm good" data-restore="${d.universe_id}">↺ Restore now</button>
+          <button class="btn sm bad" data-purge="${d.universe_id}" ${eligible ? "" : 'title="cooldown still active"'}>⊗ Purge</button>
+        </td></tr>`;
+    }).join("")}</tbody></table>` : `<div class="empty">Nothing deleted. Deleted games wait here during their cooldown.</div>`}`;
+  const pe = $("#purgeExp");
+  if(pe) pe.onclick = async () => { const r = await api("/api/purge_expired", {}); toast(`Purged ${r.purged ?? 0} expired records`, "ok"); refresh(); };
+  document.querySelectorAll("[data-restore]").forEach(b => b.onclick = async e => {
+    e.stopPropagation(); const r = await api("/api/restore", {universe_id: +b.dataset.restore});
+    r.error ? toast(r.error, "err") : toast("Restored to pipeline", "ok"); refresh();
+  });
+  document.querySelectorAll("[data-purge]").forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    confirmModal("Purge permanently?", "The delete record is removed. If the watcher finds this game again it will re-enter the pipeline as new.", "Purge", async () => {
+      const r = await api("/api/purge", {universe_id: +b.dataset.purge, force: true});
+      r.error ? toast(r.error, "err") : toast("Purged", "ok"); refresh();
+    });
+  });
+}
+
+/* ---------- activity ---------- */
+function renderActivity(){
+  const icons = {sync:"⟳", add:"＋", status:"➜", delete:"✕", restore:"↺", purge:"⊘", check:"✓", note:"✎", edit:"⚙"};
+  $("#view").innerHTML = `<div class="panel" style="max-width:860px">
+    <h3>Activity log (${S.activity.length})</h3>
+    <div class="mini">${S.activity.map(a => `
+      <div class="row"><span style="width:20px;text-align:center;color:var(--acc2)">${icons[a.type]||"·"}</span>
+      <div class="t" style="font-weight:500">${esc(a.msg)}</div><div class="m" title="${esc(a.ts)}">${rel(a.ts)}</div></div>`).join("")
+      || `<div class="empty">Nothing yet</div>`}</div></div>`;
+}
+
+/* ---------- settings ---------- */
+function renderSettings(){
+  $("#view").innerHTML = `<div class="grid two" style="max-width:1050px">
+    <div class="panel"><h3>System</h3>
+      <div class="kv">
+        <div class="it"><div class="k">CRM address</div><div class="v" style="color:var(--acc2)">127.0.0.1:8780</div></div>
+        <div class="it"><div class="k">Watcher</div><div class="v">every 90 min</div></div>
+        <div class="it"><div class="k">Tracked</div><div class="v">${S.games.length} games</div></div>
+        <div class="it"><div class="k">Deleted (cooling)</div><div class="v">${S.deleted.length}</div></div>
+      </div>
+      <h4 style="margin-top:14px">Re-fetch cooldown (days)</h4>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="cdDays" type="number" min="0" max="365" value="${S.settings.cooldown_days}"
+               style="width:90px;background:#0d1220;border:1px solid var(--line);border-radius:9px;padding:8px 11px;outline:none">
+        <button class="btn pri sm" id="cdSave">Save</button>
+        <span class="under" style="font-size:11.5px;color:var(--mut2)">deleted games can re-enter after this many days</span>
+      </div>
+      <h4 style="margin-top:16px">Add a game by hand</h4>
+      <div style="display:flex;gap:8px">
+        <input id="addUrl" placeholder="https://www.roblox.com/games/…  or place id" style="flex:1;background:#0d1220;border:1px solid var(--line);border-radius:9px;padding:8px 11px;outline:none">
+        <button class="btn pri sm" id="addGo">Fetch &amp; add</button>
+      </div>
+      <div class="under" style="font-size:11.5px;color:var(--mut2);margin-top:7px">
+        Pulls live stats, owner, Discord verification and do-not-buy checks — same as the watcher.</div>
+    </div>
+    <div class="panel"><h3>Rejected — permanently excluded</h3>
+      <div class="mini" id="rejList"></div>
+      <div class="under" style="font-size:11.5px;color:var(--mut2);margin-top:8px">
+        Rejected games are never searched, never re-imported, and hidden from the Pipeline.
+        Un-reject returns them to the pipeline as New.</div>
+    </div>
+    <div class="panel"><h3>Data</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="expBtn">⤓ Export all games (CSV)</button>
+        <a class="btn" href="/api/export">⤓ Server export</a>
+      </div>
+      <h4 style="margin-top:16px">Sync sources (read-only)</h4>
+      <div class="linkrow"><span class="u">results_history.csv</span><span class="tag">watcher output</span></div>
+      <div class="linkrow"><span class="u">curated_list.csv</span><span class="tag">harvest output</span></div>
+      <div class="linkrow"><span class="u">watchlist_history.csv</span><span class="tag">early radar feed</span></div>
+      <div class="under" style="font-size:11.5px;color:var(--mut2);margin-top:9px;line-height:1.6">
+        The watcher appends every scan here; press <b>Sync</b> (or reload) to pull new rows in.
+        Your statuses, notes and deletes live in <b>crm_data.json</b> and are never overwritten.</div>
+      <h4 style="margin-top:16px">Keep it running</h4>
+      <div class="under" style="font-size:12px;color:var(--mut);line-height:1.7">
+        Startup folder launches the watcher + this CRM at every login.<br>
+        Manual: <b>start_crm.bat</b> (CRM) · <b>start_finder.bat</b> (watcher).<br>
+        Files: roblox_finder.py · crm_server.py · crm.html · crm_data.json</div>
+    </div>
+  </div>`;
+  $("#cdSave").onclick = async () => { await api("/api/settings", {cooldown_days: +$("#cdDays").value}); toast("Cooldown saved", "ok"); refresh(); };
+  $("#addGo").onclick = async () => await doAdd($("#addUrl").value);
+  $("#expBtn").onclick = exportCsv;
+  const rej = S.games.filter(g => (g.status||"new") === "rejected");
+  const list = $("#rejList");
+  if(list) list.innerHTML = rej.length ? rej.map(g => `
+    <div class="row">${tierBadge(g.tier)}<div class="t">${esc(g.title)}</div>
+      <div class="m">${fmt(g.active)} ccu</div>
+      <button class="btn sm" data-unreject="${g.universe_id}">↺ Un-reject</button></div>`).join("")
+    : `<div class="empty" style="padding:12px 0">No rejected games</div>`;
+  list && list.querySelectorAll("[data-unreject]").forEach(b => b.onclick = async () => {
+    const r = await api("/api/status", {universe_id: +b.dataset.unreject, status: "new"});
+    r.error ? toast(r.error, "err") : toast("Un-rejected — back in the pipeline", "ok"); refresh();
+  });
+}
+
+/* ---------- drawer ---------- */
+function openDrawer(uid){
+  const g = gameById(uid);
+  if(!g) return;
+  OPEN_UID = uid;
+  const it = (k,v) => `<div class="it"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const link = (label, url, extra="") => url ? `<div class="linkrow"><span class="tag" style="min-width:64px;text-align:center">${label}</span>
+      <a class="u" href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>
+      <button class="copy" data-copy="${esc(url)}">⧉</button>${extra}</div>` : "";
+  const socialRow = (label, val) => {
+    if(!val) return "";
+    return val.split(" | ").filter(Boolean).map(u => link(label, u)).join("");
+  };
+  const hist = (g.status_history||[]).map(h =>
+    `<div class="h"><span class="ts">${esc((h.ts||"").slice(0,16).replace("T"," "))}</span>
+     <span style="color:${(STATUS_META[h.from]||{}).c||"#888"}">${STATUS_META[h.from]?.l||h.from}</span>
+     <span style="color:var(--mut2)">→</span>
+     <span style="color:${(STATUS_META[h.to]||{}).c||"#888"}">${STATUS_META[h.to]?.l||h.to}</span></div>`).join("");
+
+  $("#drawer").innerHTML = `
+  <div class="d-head">
+    <div style="display:flex;align-items:flex-start;gap:10px">
+      <div style="flex:1">
+        <div class="tt">${esc(g.title)} <button class="copy" data-copy="${esc(g.title)}" title="copy name">⧉</button></div>
+        <div style="margin-top:7px;display:flex;gap:7px;align-items:center">${tierBadge(g.tier)}${statusPill(g.status)}
+          <span class="tag">score ${g.priority_score ?? "—"}</span>
+          ${(g.status||"new")==="rejected" ? '<span class="tag" style="color:var(--bad)">permanently excluded from scanning</span>' : ""}
+          ${g.has_discord==="YES" ? '<span class="tag" style="color:var(--good)">live discord</span>' : (g.discord_url ? '<span class="tag" style="color:var(--bad)">dead invite</span>' : "")}
+          ${g.discord_name_signal==="YES" && g.has_discord!=="YES" ? '<span class="tag" style="color:var(--warn)">name advertises discord</span>' : ""}
+        </div>
+      </div>
+      <button class="iconbtn" id="dClose" style="width:30px;height:30px">✕</button>
+    </div>
+  </div>
+  <div class="d-body">
+    <div class="sec"><h4>Status</h4>
+      <div class="statusrow">${S.statuses.map(s =>
+        `<button class="${s===g.status?"on":""}" data-setstatus="${s}"
+          style="${s===g.status?`background:${STATUS_META[s].c}22`:""}">${STATUS_META[s].l}</button>`).join("")}</div>
+    </div>
+    <div class="sec"><h4>Live stats</h4>
+      <div class="kv">
+        ${it("CCU now", fmt(g.active))}${it("Peak seen", fmt(g.peak_active_seen))}
+        ${it("Visits", fmt(g.visits))}${it("Favorites", fmt(g.favorites))}
+        ${it("Like ratio", g.like_ratio ? g.like_ratio + "%" : "—")}${it("Heat / 1k visits", g.heat_active_per_1k_visits || "—")}
+        ${it("Age", g.age_days === "" ? "—" : g.age_days + " days")}${it("Max players", fmt(g.max_players))}
+        ${it("Genre", esc(g.genre || "—"))}${it("Growth/day", g.visits_growth_per_day || "—")}
+      </div>
+    </div>
+    <div class="sec"><h4>Discord</h4>
+      ${g.has_discord === "YES" ? `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:15px;font-weight:800;color:var(--good)">✓ ${esc(g.discord_server || "Discord server")}</span>
+          ${g.discord_via ? `<span class="tag">source: ${esc(g.discord_via)}</span>` : ""}
+        </div>
+        <div class="kv">${it("Members", fmt(g.discord_members))}${it("Online", fmt(g.discord_online))}</div>`
+        : `<div style="color:var(--mut);font-size:13px">${g.discord_url ? "Invite found but not live:" : "No Discord found on the game page, group, owner profile, or the creator's ecosystem (groups + other games)."}</div>`}
+      ${link("invite", (g.discord_url||"").replace(" (UNVERIFIED/expired)",""), g.has_discord==="YES" ? "" : ' <span class="tag" style="color:var(--bad)">unverified</span>')}
+    </div>
+    <div class="sec"><h4>Socials</h4>
+      ${socialRow("youtube", g.youtube)}${socialRow("tiktok", g.tiktok)}${socialRow("twitter", g.twitter_x)}
+      ${socialRow("twitch", g.twitch)}${socialRow("instagram", g.instagram)}${socialRow("other", g.other_links)}
+      ${[g.youtube,g.tiktok,g.twitter_x,g.twitch,g.instagram,g.other_links].every(x=>!x)
+        ? `<div style="color:var(--mut2);font-size:12.5px">No other social links found.</div>` : ""}
+    </div>
+    <div class="sec"><h4>Owner / Group</h4>
+      <div class="kv">
+        ${it("Creator type", esc(g.creator_type || "—"))}${it("Creator", esc(g.creator_name || "—"))}
+        ${it("Owner", esc(g.owner_name || "—"))}${it("Group members", fmt(g.group_members))}
+      </div>
+      ${g.owner_roblox_signal === "YES" ? '<div style="margin-top:9px"><span class="tag" style="color:var(--good)">owner bio mentions Roblox</span></div>' : ""}
+      ${g.discord_name_signal === "YES" ? '<div style="margin-top:9px"><span class="tag" style="color:var(--warn)">creator / group / owner name advertises a Discord — check their pages manually</span></div>' : ""}
+      ${link("group", g.creator_type === "Group" ? g.creator_url : "")}
+      ${link("owner", g.owner_url)}
+    </div>
+    <div class="sec"><h4>Links &amp; IDs</h4>
+      ${link("game", g.game_url)}
+      <div class="kv" style="margin-top:9px">
+        ${it("Universe id", `<span style="cursor:copy" class="copy" data-copy="${g.universe_id}" style="display:block">${g.universe_id}</span>`)}
+        ${it("Place id", `<span style="cursor:copy" class="copy" data-copy="${g.place_id||""}" style="display:block">${g.place_id || "—"}</span>`)}
+      </div>
+    </div>
+    <div class="sec"><h4>Description</h4><div class="desc">${esc(g.description || "No description captured (run Check to fetch it).")}</div></div>
+    <div class="sec"><h4>Notes</h4>
+      <textarea class="notes" id="dNotes" placeholder="Outreach notes, agreements, follow-ups…">${esc(g.notes || "")}</textarea>
+      <div class="under" style="font-size:10.5px;color:var(--mut2);margin-top:5px">saves automatically</div>
+    </div>
+    <div class="sec"><h4>History</h4>
+      <div class="hist">${hist || `<div style="color:var(--mut2)">No status changes yet</div>`}
+      </div>
+      <div style="margin-top:10px;font-size:11.5px;color:var(--mut2);line-height:1.7">
+        added ${rel(g.added_at)} · ${g.contacted_at ? "contacted " + rel(g.contacted_at) : "not contacted"} ·
+        checked ${rel(checkedTs(g))}${isStale(g) ? ' · <span style="color:var(--warn)">data is stale — hit Refresh now</span>' : ""}
+        ${g.found_via ? " · via " + esc(g.found_via) : ""}</div>
+    </div>
+    <div class="sec"><h4>Danger zone</h4>
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="dCheck">⟳ Refresh now</button>
+        <button class="btn bad" id="dDelete">✕ Delete (cooldown ${S.settings.cooldown_days}d)</button>
+      </div>
+    </div>
+  </div>`;
+  $("#drawer").classList.add("on"); $("#backdrop").classList.add("on");
+
+  $("#dClose").onclick = closeDrawer;
+  $("#backdrop").onclick = closeDrawer;
+  $("#dCheck").onclick = async () => {
+    toast("Refreshing from Roblox…");
+    const r = await api("/api/check", {universe_id: g.universe_id});
+    r.error ? toast(r.error, "err") : toast("Game refreshed", "ok");
+    await refresh(); openDrawer(g.universe_id);
+  };
+  $("#dDelete").onclick = () => confirmModal("Delete this game?",
+    `"${g.title}" leaves the pipeline and can only come back after ${S.settings.cooldown_days} days.`,
+    "Delete", async () => {
+      const r = await api("/api/delete", {universe_id: g.universe_id});
+      r.error ? toast(r.error, "err") : toast("Deleted — moved to cooldown", "ok");
+      closeDrawer(); refresh();
+    });
+  document.querySelectorAll("#drawer [data-setstatus]").forEach(b => b.onclick = async () => {
+    const r = await api("/api/status", {universe_id: g.universe_id, status: b.dataset.setstatus});
+    r.error ? toast(r.error, "err") : toast("Status → " + STATUS_META[b.dataset.setstatus].l, "ok");
+    await refresh(); openDrawer(g.universe_id);
+  });
+  const notesEl = $("#dNotes");
+  let nt = null;
+  notesEl.oninput = () => {
+    clearTimeout(nt);
+    nt = setTimeout(async () => {
+      const r = await api("/api/notes", {universe_id: g.universe_id, notes: notesEl.value});
+      if(!r.error){ const gg = gameById(g.universe_id); if(gg) gg.notes = notesEl.value; }
+    }, 600);
+  };
+}
+function closeDrawer(){
+  $("#drawer").classList.remove("on"); $("#backdrop").classList.remove("on"); OPEN_UID = null;
+}
+
+/* ---------- shared actions ---------- */
+function addModal(){
+  $("#modal").innerHTML = `<div class="modal-card"><h3>Add a game</h3>
+    <p>Paste a Roblox game link or place id. It gets full enrichment (stats, owner, Discord) before joining the pipeline as <b>New</b>.</p>
+    <input id="mUrl" placeholder="https://www.roblox.com/games/…">
+    <div class="modal-foot"><button class="btn" id="mCancel">Cancel</button><button class="btn pri" id="mOk">Fetch &amp; add</button></div></div>`;
+  $("#modal").classList.add("on");
+  $("#mCancel").onclick = () => $("#modal").classList.remove("on");
+  $("#mOk").onclick = () => doAdd($("#mUrl").value);
+  $("#mUrl").focus();
+}
+async function doAdd(url){
+  url = (url || "").trim();
+  if(!url) return;
+  $("#modal").classList.remove("on");
+  toast("Fetching from Roblox…");
+  const r = await api("/api/add", {url});
+  if(r.error) return toast(r.error, "err");
+  toast(`Added "${r.title}" (${r.tier || "unranked"})`, "ok");
+  await refresh();
+  if(VIEW !== "pipeline") setView("pipeline");
+  openDrawer(r.universe_id);
+}
+function exportCsv(){
+  const rows = pipelineRows();
+  if(!rows.length) return toast("Nothing to export", "err");
+  const fields = Object.keys(rows[0]);
+  const q = v => { v = String(v ?? ""); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+  const csv = "\ufeff" + fields.join(",") + "\n" + rows.map(r => fields.map(f => q(r[f])).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+  a.download = "crm_export.csv"; a.click();
+  toast(`Exported ${rows.length} rows`, "ok");
+}
+
+/* ============================== events ============================== */
+document.body.addEventListener("click", async e => {
+  const cp = e.target.closest("[data-copy]");
+  if(cp){ e.stopPropagation(); await copy(cp.dataset.copy); return; }
+  const st = e.target.closest('[data-act="status"]');
+  if(st){ e.stopPropagation(); return; }
+  const act = e.target.closest("[data-act]");
+  if(act){
+    e.stopPropagation();
+    const uid = act.dataset.uid;
+    if(act.dataset.act === "open"){ const g = gameById(uid); if(g) window.open(g.game_url, "_blank"); }
+    if(act.dataset.act === "check"){
+      toast("Refreshing…");
+      const r = await api("/api/check", {universe_id: +uid});
+      r.error ? toast(r.error, "err") : toast("Refreshed", "ok"); refresh();
+    }
+    if(act.dataset.act === "del"){
+      const g = gameById(uid);
+      confirmModal("Delete this game?", `"${g?.title}" leaves the pipeline and can only come back after ${S.settings.cooldown_days} days.`, "Delete",
+        async () => { const r = await api("/api/delete", {universe_id: +uid});
+          r.error ? toast(r.error, "err") : toast("Deleted", "ok"); refresh(); });
+    }
+    return;
+  }
+  const row = e.target.closest("tr[data-open]");
+  if(row){ openDrawer(row.dataset.open); return; }
+});
+document.body.addEventListener("change", async e => {
+  if(e.target.matches('select[data-act="status"]')){
+    const uid = e.target.dataset.uid;
+    const r = await api("/api/status", {universe_id: +uid, status: e.target.value});
+    r.error ? toast(r.error, "err") : toast("Status updated", "ok");
+    refresh();
+  }
+});
+$("#nav").addEventListener("click", e => { const b = e.target.closest("button"); if(b) setView(b.dataset.v); });
+$("#globalSearch").addEventListener("input", e => {
+  F.q = e.target.value;
+  if(VIEW !== "pipeline") setView("pipeline"); else render();
+  const el = $("#fQ"); if(el){ el.value = F.q; }
+});
+$("#globalSearch").addEventListener("keydown", e => { if(e.key === "Escape"){ e.target.value = ""; F.q = ""; render(); e.target.blur(); } });
+async function doSync(manual){
+  if(manual) $("#syncIc").className = "spin";
+  let r = null;
+  try {
+    r = await api("/api/sync", {});
+    if(manual){
+      if(r.error) toast(r.error, "err");
+      else toast(`Sync: +${r.imported} new · ${r.updated} updated · ${r.cooling} cooling · ${r.excluded} do-not-buy`, "ok");
+    }
+  } catch(e){ if(manual) toast("Sync failed", "err"); }
+  finally { if(manual) $("#syncIc").className = ""; }
+  return r;
+}
+$("#syncBtn").addEventListener("click", async () => { await doSync(true); refresh(); });
+document.addEventListener("keydown", e => {
+  if(e.key === "/" && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA"){
+    e.preventDefault(); $("#globalSearch").focus();
+  }
+  if(e.key === "Escape"){ closeDrawer(); $("#modal").classList.remove("on"); }
+});
+
+refresh().then(async () => { await doSync(false); await refresh(); });
+setInterval(() => { if(!OPEN_UID) refresh(); }, 45000);
+setInterval(async () => { await doSync(false); if(!OPEN_UID) refresh(); }, 600000);
+</script>
+</body>
+</html>

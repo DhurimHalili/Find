@@ -1,0 +1,59 @@
+name: watcher
+
+# One finder pass per run, results committed back to the repo.
+# Quality is identical to the local watcher: same flags, same cookie
+# capability (via secret), and the scan memory (seen_ledger.json) plus the
+# rolling keyword cursor (keyword_cursor.json) persist through git, so every
+# run continues exactly where the last one stopped.
+
+"on":
+  schedule:
+    # Hourly at :15 UTC. GitHub may start runs a few minutes late under load;
+    # each pass takes ~15 min, well inside the timeout.
+    - cron: "15 * * * *"
+  workflow_dispatch: {}  # manual "Run workflow" button for on-demand passes
+
+concurrency:
+  group: watcher
+  cancel-in-progress: false  # never overlap: overlapping passes corrupt the CSV append
+
+permissions:
+  contents: write  # needed to push results back
+
+jobs:
+  pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so pull --rebase works
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install deps
+        run: pip install requests
+
+      - name: Run finder pass
+        env:
+          ROBLOSECURITY: ${{ secrets.ROBLOSECURITY }}
+        run: |
+          python roblox_finder.py --no-golden --keyword-mode full --search-pages 3 \
+            --sort-pages 15 --keyword-limit 250 --snowball-hops 3 --csv \
+            --watchlist-file watchlist_history.csv >> results_history.csv 2>> finder.log
+          tail -8 finder.log || true
+
+      - name: Commit results back
+        if: always()  # even a crashed pass may have produced partial rows
+        run: |
+          git config user.name "watcher-bot"
+          git config user.email "watcher-bot@users.noreply.github.com"
+          for f in results_history.csv watchlist_history.csv seen_ledger.json keyword_cursor.json; do
+            [ -f "$f" ] && git add "$f"
+          done
+          git diff --cached --quiet && echo "nothing new" && exit 0
+          git commit -m "watcher pass $(date -u +%Y-%m-%d_%H:%M_UTC)"
+          git pull --rebase --autostash || true
+          git push

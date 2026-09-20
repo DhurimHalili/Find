@@ -1,0 +1,16 @@
+[Unit]
+Description=Roblox Acquisition CRM
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/robloxfind
+EnvironmentFile=/etc/robloxfind.env
+ExecStart=/usr/bin/python3 /home/ubuntu/robloxfind/crm_server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

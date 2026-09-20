@@ -1,0 +1,25 @@
+# ---- private / local-only: NEVER commit these ----
+
+# your statuses, notes, pipeline state (private!)
+crm_data.json
+# grows forever, local diagnostics only
+finder.log
+harvest.log
+
+# ---- agent scaffolding / session noise ----
+.mimosa/
+
+# ---- generated junk ----
+__pycache__/
+*.pyc
+*.bak
+smoke_*.log
+smoke_*.csv
+wl_*.log
+wl_*.csv
+crm_check*.js
+
+# ---- OS / editor noise ----
+Thumbs.db
+Desktop.ini
+.vscode/

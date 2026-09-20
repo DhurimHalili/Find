@@ -1,0 +1,18 @@
+[Unit]
+Description=Roblox Acquisition Finder watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/robloxfind
+EnvironmentFile=/etc/robloxfind.env
+ExecStart=/usr/bin/python3 /home/ubuntu/robloxfind/roblox_finder.py --loop 90 --keyword-mode full --search-pages 3 --sort-pages 15 --keyword-limit 250 --snowball-hops 3 --csv --watchlist-file watchlist_history.csv
+StandardOutput=append:/home/ubuntu/robloxfind/results_history.csv
+StandardError=append:/home/ubuntu/robloxfind/finder.log
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
