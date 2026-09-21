@@ -1,10 +1,11 @@
 @echo off
 title Roblox Acquisition Finder
-rem Rolling watcher: sorts + snowball run fully every pass (highest yield, ~5 min);
-rem keyword search covers a rotating 250-keyword slice per pass (~10-15 min) via
-rem keyword_cursor.json, so the full ~1300-keyword sweep finishes over ~5 passes
-rem but EVERY pass yields fresh games. Deep 3-hop snowball catches what RoTrend
-rem catches via recommendations (clones of trending hits share rec graphs).
+rem Rolling watcher: sorts + snowball run fully every pass (highest yield); keyword
+rem search covers a rotating 500-keyword slice per pass via keyword_cursor.json,
+rem so the full ~1300-keyword sweep finishes over ~3 passes but EVERY pass yields
+rem fresh games. 8 request threads hide network latency (same polite request
+rem rate). Deep 3-hop snowball catches what RoTrend catches via recommendations
+rem (clones of trending hits share rec graphs).
 rem   - match CSVs append to results_history.csv; progress goes to finder.log
 rem STOP -- the cloud watcher (GitHub Actions) owns scanning now. Running this
 rem too forks results_history.csv / seen_ledger.json and the next git pull will
@@ -13,4 +14,4 @@ rem the assistant so local + cloud can be merged again.
 set /p LOCALRUN="Cloud watcher is primary. Run a LOCAL pass anyway? (y/N) "
 if /i not "%LOCALRUN%"=="y" exit /b 0
 cd /d "C:\Users\Gaming pc\Desktop\robloxfind"
-python roblox_finder.py --loop 90 --keyword-mode full --search-pages 3 --sort-pages 15 --keyword-limit 250 --snowball-hops 3 --csv --watchlist-file watchlist_history.csv >> results_history.csv 2>> finder.log
+python roblox_finder.py --loop 90 --keyword-mode full --search-pages 3 --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv --watchlist-file watchlist_history.csv >> results_history.csv 2>> finder.log

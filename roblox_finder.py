@@ -19,6 +19,10 @@ SPEED MODEL -- RoTrend-style coverage without 2-hour passes:
   so each pass finishes in ~15 min but the full sweep completes over ~5 passes.
   Creator game lists use newest-first order so fresh low-visit candidates surface
   immediately instead of paging through years of catalogue.
+  All network I/O runs in a thread pool (--workers, default 8) behind a token
+  bucket (--delay sets the average rate, same politeness as before): same
+  endpoints, same data, same validation -- only the waiting is parallel. The
+  45s verification wait hides inside the snowball work instead of idling.
 
 OUTPUT MODEL -- this script writes NO files. All data goes to stdout, diagnostics to stderr:
     python roblox_finder.py --csv        > results.csv      (matches, Excel-ready UTF-8 BOM)
@@ -63,8 +67,10 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -535,6 +541,66 @@ GENERIC_SOCIAL_RE = re.compile(
     r"search|hashtag|i|transactions|groups|userhub|spotlight|pe|de|es|fr|id|it|ja|ko|pl|pt|th|tr|vi|ar|hi)\b", re.I)
 
 # =============================================================================
+# CONCURRENCY -- thread-safe HTTP + ordered parallel map
+# The workload is ~95% waiting on network, so --workers threads hide latency
+# while a token bucket keeps the average request rate at 1/delay (the same
+# politeness the sequential version had). Same endpoints, same data, same
+# validation -- only the waiting is parallel.
+# =============================================================================
+_PRINT_LOCK = threading.Lock()
+_CACHE_LOCK = threading.Lock()
+_STATE_LOCK = threading.Lock()
+
+
+def tsay(msg):
+    """say() from worker threads without interleaved stderr lines."""
+    with _PRINT_LOCK:
+        say(msg)
+
+
+class RateLimiter:
+    """Token bucket: sustains `rate_per_sec` with a small burst allowance.
+    Threads block in acquire(); the bucket refills with wall-clock time, so
+    short parallel bursts are absorbed but the long-run average never exceeds
+    the configured rate (existing 429 backoff in Client.get still applies)."""
+
+    def __init__(self, rate_per_sec, burst=None):
+        self.rate = max(float(rate_per_sec), 0.05)
+        # Small bursts: Roblox tolerates the sustained rate fine but answers
+        # parallel bursts with flaky 500s (observed live). Keep bursts tiny.
+        self.capacity = burst if burst else 2
+        self._tokens = float(self.capacity)
+        self._updated = time.monotonic()
+        self._cond = threading.Condition(threading.Lock())
+
+    def acquire(self):
+        with self._cond:
+            while True:
+                now = time.monotonic()
+                self._tokens = min(self.capacity,
+                                   self._tokens + (now - self._updated) * self.rate)
+                self._updated = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                self._cond.wait(timeout=(1.0 - self._tokens) / self.rate)
+
+
+def _pmap(fn, items, workers):
+    """Order-preserving parallel map. workers<=1 runs sequentially (same code
+    path, deterministic -- used for debugging and equivalence tests)."""
+    items = list(items)
+    if not items:
+        return []
+    if workers <= 1:
+        return [fn(x) for x in items]
+    out = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as ex:
+        futs = {ex.submit(fn, x): i for i, x in enumerate(items)}
+        for fut in as_completed(futs):
+            out[futs[fut]] = fut.result()
+    return out
+# =============================================================================
 # HTTP
 # =============================================================================
 class Client:
@@ -542,7 +608,7 @@ class Client:
         self.s = requests.Session()
         self.s.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                           "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "en-US,en;q=0.9",
             "Referer": "https://www.roblox.com/",
@@ -556,35 +622,47 @@ class Client:
         self.session_id = str(uuid.uuid4())
         self.calls = 0
         self.dead_endpoints = set()   # endpoints that returned 401/403 -> don't hammer them
+        self._lock = threading.Lock()
+        # Average request rate stays at the old 1/delay politeness; threads
+        # only hide latency. delay<=0 keeps the legacy no-wait behavior.
+        self.limiter = RateLimiter(1.0 / delay if delay and delay > 0 else 30.0)
 
     def get(self, url, params=None, retries=6, key=None):
-        if key and key in self.dead_endpoints:
-            return None
+        if key:
+            with self._lock:
+                if key in self.dead_endpoints:
+                    return None
         backoff = 5
         for _ in range(retries):
             try:
-                time.sleep(self.delay)
+                self.limiter.acquire()
                 r = self.s.get(url, params=params, timeout=30)
-                self.calls += 1
+                with self._lock:
+                    self.calls += 1
                 if r.status_code == 200:
                     return r.json()
                 if r.status_code == 429:
                     if self.verbose:
-                        print(f"   [429] sleeping {backoff}s", file=sys.stderr)
+                        tsay(f"   [429] sleeping {backoff}s")
                     time.sleep(backoff); backoff = min(backoff * 2, 120); continue
                 if r.status_code in (401, 403, 404):
                     if key:
-                        self.dead_endpoints.add(key)
-                        say(f"   [!] {key} returned {r.status_code} - skipping this source for the rest of the run.")
+                        with self._lock:
+                            self.dead_endpoints.add(key)
+                        tsay(f"   [!] {key} returned {r.status_code} - skipping this source for the rest of the run.")
                     return None
                 if r.status_code >= 500:
+                    # Always logged (not just verbose): server-side flakiness is
+                    # the signal for tuning --workers/--delay down.
+                    tsay(f"   [{r.status_code}] retrying after {backoff}s: {url[:90]}")
                     time.sleep(backoff); continue
                 if self.verbose:
-                    say(f"   [{r.status_code}] {url}")
+                    tsay(f"   [{r.status_code}] {url}")
                 return None
             except (requests.RequestException, ValueError) as e:
-                if self.verbose:
-                    say(f"   [error] {e}")
+                # Always logged: connection blips under parallel load are the
+                # signal for tuning --workers/--delay (each costs a backoff sleep).
+                tsay(f"   [retry in {backoff}s] {type(e).__name__}: {str(e)[:100]}")
                 time.sleep(backoff)
         return None
 
@@ -597,16 +675,21 @@ def say(msg):
 _discord_session = requests.Session()
 _discord_session.headers.update({"User-Agent": "Mozilla/5.0 (RobloxFinder/2.0)"})
 _discord_cache = {}
+# Discord's invite endpoint is a different host with its own budget: 2 req/s
+# shared across enrichment threads (same long-run average as the old 0.6s
+# sequential sleep, but parallel-safe).
+_DISCORD_LIMITER = RateLimiter(2.0, burst=4)
 
 def verify_discord(code):
     """Returns dict(valid, name, members, online) using Discord's public invite endpoint."""
     code = code.strip()
-    if code in _discord_cache:
-        return _discord_cache[code]
+    with _CACHE_LOCK:
+        if code in _discord_cache:
+            return _discord_cache[code]
     result = {"valid": False, "name": "", "members": "", "online": ""}
     for _ in range(4):
         try:
-            time.sleep(0.6)
+            _DISCORD_LIMITER.acquire()
             r = _discord_session.get(DISCORD_INVITE_API.format(code),
                                      params={"with_counts": "true", "with_expiration": "true"}, timeout=20)
             if r.status_code == 200:
@@ -622,14 +705,17 @@ def verify_discord(code):
             break  # 404 = dead invite, others = give up
         except (requests.RequestException, ValueError):
             time.sleep(3)
-    _discord_cache[code] = result
-    return result
+    with _CACHE_LOCK:
+        _discord_cache.setdefault(code, result)
+        return _discord_cache[code]
 
 # =============================================================================
 # DISCOVERY
 # =============================================================================
-def discover_search(client, keyword, max_pages, found, prefilter):
-    token, pages, new = "", 0, 0
+def discover_search(client, keyword, max_pages, prefilter):
+    """One keyword's pages -> {universe_id: source}. Pure worker: no shared
+    state touched (seen/dup filtering happens at merge time in run())."""
+    token, pages, found = "", 0, {}
     while pages < max_pages:
         data = client.get(OMNI_API, {"searchQuery": keyword, "pageToken": token,
                                      "sessionId": client.session_id, "pageType": "all"}, key="omni-search")
@@ -639,21 +725,46 @@ def discover_search(client, keyword, max_pages, found, prefilter):
         for group in data.get("searchResults", []):
             for item in group.get("contents", []):
                 uid = item.get("universeId")
-                if not uid:
+                if not uid or uid in found:
                     continue
                 pc = item.get("playerCount")
                 if prefilter and isinstance(pc, int) and pc < NEAR_MISS_MIN_ACTIVE:
                     continue
-                if uid not in found and not recently_seen(uid):
-                    found[uid] = f"search:{keyword}"; new += 1
+                found[uid] = f"search:{keyword}"
         token = data.get("nextPageToken")
         if not token:
             break
-    return new
+    return found
 
 
-def discover_sorts(client, max_pages, found, prefilter):
-    sorts_token, seen_sorts, total_new = None, set(), 0
+def _fetch_sort_pages(client, sort_id, name, games, page_token, max_pages, prefilter):
+    """One sort's full page chain -> {universe_id: source}. Pure worker."""
+    found, pages = {}, 0
+    while True:
+        for g in games:
+            uid = g.get("universeId")
+            if not uid or uid in found:
+                continue
+            pc = g.get("playerCount")
+            if prefilter and isinstance(pc, int) and pc < NEAR_MISS_MIN_ACTIVE:
+                continue
+            found[uid] = f"sort:{name}"
+        pages += 1
+        if not page_token or pages >= max_pages:
+            break
+        cont = client.get(SORT_CONTENT_API, {"sessionId": client.session_id, "sortId": sort_id,
+                                             "pageToken": page_token, "device": "computer",
+                                             "country": "all"}, key="explore-sort-content")
+        if not cont:
+            break
+        games, page_token = cont.get("games", []), cont.get("nextPageToken")
+    return found
+
+
+def discover_sorts(client, max_pages, prefilter, workers):
+    """All Discover sorts -> {universe_id: source}. Sort-list walk stays
+    sequential (cheap); each sort's page chain runs in the pool."""
+    sorts_token, seen_sorts, jobs = None, set(), []
     while True:
         params = {"sessionId": client.session_id, "device": "computer", "country": "all"}
         if sorts_token:
@@ -667,49 +778,40 @@ def discover_sorts(client, max_pages, found, prefilter):
             if not sort_id or sort_id in seen_sorts:
                 continue
             seen_sorts.add(sort_id)
-            games, page_token, pages, new = sort.get("games", []), sort.get("nextPageToken"), 0, 0
-            while True:
-                for g in games:
-                    uid = g.get("universeId")
-                    if not uid:
-                        continue
-                    pc = g.get("playerCount")
-                    if prefilter and isinstance(pc, int) and pc < NEAR_MISS_MIN_ACTIVE:
-                        continue
-                    if uid not in found and not recently_seen(uid):
-                        found[uid] = f"sort:{name}"; new += 1
-                pages += 1
-                if not page_token or pages >= max_pages:
-                    break
-                cont = client.get(SORT_CONTENT_API, {"sessionId": client.session_id, "sortId": sort_id,
-                                                     "pageToken": page_token, "device": "computer",
-                                                     "country": "all"}, key="explore-sort-content")
-                if not cont:
-                    break
-                games, page_token = cont.get("games", []), cont.get("nextPageToken")
-            say(f"   sort '{name}': +{new}")
-            total_new += new
+            jobs.append((sort_id, name, sort.get("games", []), sort.get("nextPageToken")))
         sorts_token = data.get("nextSortsPageToken")
         if not sorts_token:
             break
-    return total_new
+
+    def _one(job):
+        sort_id, name, games, page_token = job
+        got = _fetch_sort_pages(client, sort_id, name, games, page_token, max_pages, prefilter)
+        return name, got
+
+    merged = {}
+    for name, got in _pmap(_one, jobs, workers):
+        tsay(f"   sort '{name}': +{len(got)}")
+        for uid, src in got.items():
+            merged.setdefault(uid, src)
+    return merged
 
 
-def discover_recommendations(client, universe_id, found):
+def discover_recommendations(client, universe_id):
+    """One game's recommendations -> {universe_id: source}. Pure worker."""
     data = client.get(RECS_API.format(universe_id), {"maxRows": 12}, key="recommendations")
-    new = 0
-    if not data:
-        return 0
-    for g in data.get("games", []):
-        uid = g.get("universeId")
-        if uid and uid not in found and not recently_seen(uid):
-            found[uid] = f"rec:{universe_id}"; new += 1
-    return new
+    found = {}
+    if data:
+        for g in data.get("games", []):
+            uid = g.get("universeId")
+            if uid and uid not in found:
+                found[uid] = f"rec:{universe_id}"
+    return found
 
 
-def discover_creator_games(client, ctype, cid, found):
+def discover_creator_games(client, ctype, cid):
+    """One creator's catalogue (newest first) -> {universe_id: source}. Pure worker."""
     url = (GROUP_GAMES_API if ctype == "Group" else USER_GAMES_API).format(cid)
-    cursor, new, pages = "", 0, 0
+    cursor, found, pages = "", {}, 0
     while pages < 3:
         # Desc = newest games first: fresh low-visit / high-CCU candidates surface
         # immediately instead of paging through years of old catalogue first.
@@ -720,12 +822,12 @@ def discover_creator_games(client, ctype, cid, found):
         pages += 1
         for g in data.get("data", []):
             uid = g.get("id")
-            if uid and uid not in found and not recently_seen(uid):
-                found[uid] = f"creator:{ctype}:{cid}"; new += 1
+            if uid and uid not in found:
+                found[uid] = f"creator:{ctype}:{cid}"
         cursor = data.get("nextPageCursor")
         if not cursor:
             break
-    return new
+    return found
 
 # =============================================================================
 # STATS & ENRICHMENT
@@ -735,38 +837,59 @@ def chunks(lst, n):
         yield lst[i:i + n]
 
 
-def fetch_details(client, ids):
-    out = {}
-    for batch in chunks(ids, 50):   # 50, not 100 -- Roblox 400s ("Too many universe IDs") above 50
+def fetch_details(client, ids, workers=1):
+    batches = list(chunks(list(ids), 50))  # 50, not 100 -- Roblox 400s ("Too many universe IDs") above 50
+
+    def _one(batch):
+        # one batch = one API call; callers merge the pity-free dicts
         data = client.get(GAMES_API, {"universeIds": ",".join(map(str, batch))})
+        out = {}
         if data:
             for g in data.get("data", []):
                 out[g["id"]] = g
-    return out
+        return out
+
+    merged = {}
+    for part in _pmap(_one, batches, workers):
+        merged.update(part)
+    return merged
 
 
-def fetch_votes(client, ids):
-    out = {}
-    for batch in chunks(ids, 50):   # same 50-ID limit as the stats endpoint
+def fetch_votes(client, ids, workers=1):
+    batches = list(chunks(list(ids), 50))  # same 50-ID limit as the stats endpoint
+
+    def _one(batch):
         data = client.get(VOTES_API, {"universeIds": ",".join(map(str, batch))})
+        out = {}
         if data:
             for v in data.get("data", []):
                 out[v["id"]] = (v.get("upVotes", 0), v.get("downVotes", 0))
-    return out
+        return out
+
+    merged = {}
+    for part in _pmap(_one, batches, workers):
+        merged.update(part)
+    return merged
 
 
 _group_cache, _user_cache = {}, {}
 
 def fetch_group(client, gid):
-    if gid not in _group_cache:
-        _group_cache[gid] = client.get(GROUP_API.format(gid)) or {}
-    return _group_cache[gid]
+    with _CACHE_LOCK:
+        if gid in _group_cache:
+            return _group_cache[gid]
+    grp = client.get(GROUP_API.format(gid)) or {}
+    with _CACHE_LOCK:
+        return _group_cache.setdefault(gid, grp)
 
 
 def fetch_user(client, uid):
-    if uid not in _user_cache:
-        _user_cache[uid] = client.get(USER_API.format(uid)) or {}
-    return _user_cache[uid]
+    with _CACHE_LOCK:
+        if uid in _user_cache:
+            return _user_cache[uid]
+    user = client.get(USER_API.format(uid)) or {}
+    with _CACHE_LOCK:
+        return _user_cache.setdefault(uid, user)
 
 
 _profile_cache = {}
@@ -774,18 +897,21 @@ _profile_cache = {}
 def fetch_owner_profile_texts(client, user_id):
     """Owner profile page HTML -- no public JSON endpoint exposes a user's social links,
     so the rendered page is scanned for Discord/social URLs. Cached per owner."""
-    if user_id in _profile_cache:
-        return _profile_cache[user_id]
+    with _CACHE_LOCK:
+        if user_id in _profile_cache:
+            return _profile_cache[user_id]
     html = ""
     try:
-        client.calls += 1
-        time.sleep(client.delay)
+        with client._lock:
+            client.calls += 1
+        client.limiter.acquire()
         r = client.s.get(f"https://www.roblox.com/users/{user_id}/profile", timeout=30)
         if r.status_code == 200:
             html = r.text
     except requests.RequestException:
         pass
-    _profile_cache[user_id] = html
+    with _CACHE_LOCK:
+        _profile_cache[user_id] = html
     return html
 
 
@@ -797,8 +923,9 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
     not on the game page itself -- the dev's community is the same across their games.
     Returns (extra_texts, extra_official_links). Cached per creator."""
     key = (ctype, cid, owner_id)
-    if key in _eco_cache:
-        return _eco_cache[key]
+    with _CACHE_LOCK:
+        if key in _eco_cache:
+            return _eco_cache[key]
     texts, links = [], []
     try:
         user_ids = []
@@ -836,7 +963,8 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
                         texts.append(g["description"])
     except Exception:
         pass   # ecosystem scan is best-effort enrichment -- never break the pass
-    _eco_cache[key] = (texts, links)
+    with _CACHE_LOCK:
+        _eco_cache[key] = (texts, links)
     return texts, links
 
 
@@ -925,7 +1053,8 @@ def main():
 
     ap = argparse.ArgumentParser(description="Find under-the-radar high-concurrency Roblox games.")
     ap.add_argument("--keyword-mode", choices=["fast", "full", "max"], default="full",
-                    help="fast (~300 kw, ~20 min) | full (~900 kw, ~60 min) | max (~2000 kw, ~2.5 h)")
+                    help="keyword universe size: fast (~500) | full (~1300) | max (~2000+ combos). "
+                         "Per-pass cost is capped by --keyword-limit regardless of mode")
     ap.add_argument("--extra-keywords", nargs="*", default=[], help="keywords to add")
     ap.add_argument("--search-pages", type=int, default=5)
     ap.add_argument("--sort-pages", type=int, default=25)
@@ -940,7 +1069,12 @@ def main():
                     help="report modded/reuploaded/NSFW/non-English games too (default: excluded)")
     ap.add_argument("--seeds", nargs="*", default=[], help="extra universe IDs to check")
     ap.add_argument("--no-prefilter", action="store_true", help="don't skip <50-player search results")
-    ap.add_argument("--delay", type=float, default=0.35)
+    ap.add_argument("--delay", type=float, default=0.35,
+                    help="average seconds between requests per host (token bucket rate); "
+                         "lower to 0.2 for more speed if the log shows no [429]s")
+    ap.add_argument("--workers", type=int, default=6,
+                    help="parallel request threads (hides network latency; the request "
+                         "rate still respects --delay). 1 = sequential, deterministic")
     ap.add_argument("--loop", type=int, default=0, help="repeat every N minutes (0 = once)")
     ap.add_argument("--seen-days", type=int, default=3,
                     help="skip games already evaluated within this many days (scan memory)")
@@ -1041,25 +1175,51 @@ def run(client, keywords, args, first_pass=True):
     prefilter = not args.no_prefilter
     load_seen()   # pick up CRM-written permanent skips + changes made since boot
 
-    # ---------------- discovery
+    # ---------------- discovery (keywords + sorts run in the pool; merges
+    # apply scan-memory + dup filtering in the main thread)
     found = {}
     for s in args.seeds:
         try: found[int(s)] = "seed"
         except ValueError: pass
+    workers = max(1, args.workers)
+
+    def absorb(new_ids):
+        added = 0
+        for uid, src in new_ids.items():
+            if uid not in found and not recently_seen(uid):
+                found[uid] = src
+                added += 1
+        return added
 
     if not args.no_sorts:
-        say(f"\n[1/5] Scanning Discover sorts...")
-        discover_sorts(client, args.sort_pages, found, prefilter)
+        say(f"\n[1/5] Scanning Discover sorts ({workers} workers)...")
+        absorb(discover_sorts(client, args.sort_pages, prefilter, workers))
 
     if not args.no_search:
         say(f"\n[2/5] Searching {len(keywords)} keywords x {args.search_pages} pages "
-            f"(~{len(keywords) * args.search_pages * (args.delay + 0.3) / 60:.0f} min)...")
-        for i, kw in enumerate(keywords, 1):
-            new = discover_search(client, kw, args.search_pages, found, prefilter)
-            say(f"   ({i}/{len(keywords)}) '{kw}': +{new}   total {len(found)}")
+            f"({workers} workers)...")
+        done = 0
+
+        def _kw(kw):
+            return kw, discover_search(client, kw, args.search_pages, prefilter)
+
+        if workers <= 1:
+            for kw in keywords:
+                done += 1
+                new = absorb(_kw(kw)[1])
+                say(f"   ({done}/{len(keywords)}) '{kw}': +{new}   total {len(found)}")
+        else:
+            with ThreadPoolExecutor(max_workers=min(workers, len(keywords))) as ex:
+                futs = {ex.submit(_kw, kw): kw for kw in keywords}
+                for fut in as_completed(futs):
+                    kw, got = fut.result()
+                    done += 1
+                    new = absorb(got)
+                    tsay(f"   ({done}/{len(keywords)}) '{kw}': +{new}   total {len(found)}")
 
     say(f"\n[3/5] Pulling exact stats for {len(found)} games...")
-    details = fetch_details(client, list(found.keys()))
+    details = fetch_details(client, list(found.keys()), workers)
+    t_stats_done = time.time()  # anchor for the verification gap (see below)
 
     def candidates_from(detail_map):
         m, nm, excl = [], [], {}
@@ -1081,26 +1241,30 @@ def run(client, keywords, args, first_pass=True):
     mark_seen(details.keys())                    # everything evaluated: full span
     mark_seen(near, hours=NEAR_MISS_SEEN_HOURS)  # near-misses: re-check at another hour soon
 
-    # ---------------- snowball
+    # ---------------- snowball (recs + creator catalogues in the pool;
+    # merges apply scan-memory + dup filtering in the main thread)
     if not args.no_snowball:
         frontier = matches + near
         for hop in range(1, args.snowball_hops + 1):
             say(f"\n[4/5] Snowball hop {hop}: recommendations + creator games for {len(frontier)} seeds...")
             before = set(found.keys())
-            creators_done = set()
+            for got in _pmap(lambda u: discover_recommendations(client, u), frontier, workers):
+                absorb(got)
+            creators = []
+            seen_ck = set()
             for uid in frontier:
-                discover_recommendations(client, uid, found)
-                g = details.get(uid, {})
-                c = g.get("creator") or {}
+                c = (details.get(uid, {}) or {}).get("creator") or {}
                 ck = (c.get("type"), c.get("id"))
-                if c.get("id") and ck not in creators_done:
-                    creators_done.add(ck)
-                    discover_creator_games(client, c["type"], c["id"], found)
+                if c.get("id") and ck not in seen_ck:
+                    seen_ck.add(ck)
+                    creators.append(ck)
+            for got in _pmap(lambda ck: discover_creator_games(client, ck[0], ck[1]), creators, workers):
+                absorb(got)
             new_ids = [u for u in found if u not in before]
             say(f"   +{len(new_ids)} new games from snowball")
             if not new_ids:
                 break
-            new_details = fetch_details(client, new_ids)
+            new_details = fetch_details(client, new_ids, workers)
             details.update(new_details)
             nm, nn = candidates_from(new_details)
             mark_seen(new_details.keys())
@@ -1112,11 +1276,19 @@ def run(client, keywords, args, first_pass=True):
         say("\n[4/5] Snowball skipped")
 
     # ---------------- match verification (second snapshot: kills one-off spikes / API flake)
+    # OVERLAP: the wait is measured from the first stats pull, so it hides
+    # inside the snowball work above (usually the longest phase). Only if the
+    # snowball was skipped or unusually fast do we sleep the remainder.
     if not args.no_verify and matches:
         uniq = list(dict.fromkeys(matches))
-        say(f"\n[4.6/5] Verifying {len(uniq)} matches with a second stats snapshot ({args.verify_wait}s)...")
-        time.sleep(args.verify_wait)
-        fresh = fetch_details(client, uniq)
+        rest = args.verify_wait - (time.time() - t_stats_done)
+        if rest > 0:
+            say(f"\n[4.6/5] Verifying {len(uniq)} matches with a second stats snapshot ({rest:.0f}s)...")
+            time.sleep(rest)
+        else:
+            say(f"\n[4.6/5] Verifying {len(uniq)} matches with a second stats snapshot "
+                f"(snowball covered the {args.verify_wait}s gap)...")
+        fresh = fetch_details(client, uniq, workers)
         kept = []
         for uid in uniq:
             g2 = fresh.get(uid)
@@ -1132,13 +1304,16 @@ def run(client, keywords, args, first_pass=True):
         say(f"   {len(kept)}/{len(uniq)} matches confirmed")
         matches = kept
 
-    # ---------------- enrichment
+    # ---------------- enrichment (one worker per match; _STATE + progress
+    # under locks; result order matches the sequential version)
     say(f"\n[5/5] Enriching {len(matches)} matches (votes, owners, Discord/socials)...")
-    votes = fetch_votes(client, matches)
+    votes = fetch_votes(client, matches, workers)
 
     rows = []
     now_iso = datetime.now(timezone.utc).isoformat()
-    for idx, uid in enumerate(matches, 1):
+    done_count = [0]
+
+    def _enrich(uid):
         g = details[uid]
         visits, active, favs = g.get("visits") or 0, g.get("playing") or 0, g.get("favoritedCount") or 0
         tier = classify(visits, active)
@@ -1198,17 +1373,18 @@ def run(client, keywords, args, first_pass=True):
 
         # ---- state: peak + growth (in-memory, lives as long as this process)
         key = str(uid)
-        prev = _STATE.get(key, {})
-        peak = max(active, prev.get("peak_active", 0))
-        growth_per_day = ""
-        if prev.get("last_ts") and prev.get("last_visits") is not None:
-            hrs = (datetime.now(timezone.utc) - datetime.fromisoformat(prev["last_ts"])).total_seconds() / 3600
-            if hrs >= 1:
-                growth_per_day = round((visits - prev["last_visits"]) / hrs * 24)
-        is_new = key not in _STATE
-        _STATE[key] = {"peak_active": peak, "first_seen": prev.get("first_seen", now_iso),
-                       "first_visits": prev.get("first_visits", visits),
-                       "last_visits": visits, "last_ts": now_iso, "name": g.get("name")}
+        with _STATE_LOCK:
+            prev = _STATE.get(key, {})
+            peak = max(active, prev.get("peak_active", 0))
+            growth_per_day = ""
+            if prev.get("last_ts") and prev.get("last_visits") is not None:
+                hrs = (datetime.now(timezone.utc) - datetime.fromisoformat(prev["last_ts"])).total_seconds() / 3600
+                if hrs >= 1:
+                    growth_per_day = round((visits - prev["last_visits"]) / hrs * 24)
+            is_new = key not in _STATE
+            _STATE[key] = {"peak_active": peak, "first_seen": prev.get("first_seen", now_iso),
+                           "first_visits": prev.get("first_visits", visits),
+                           "last_visits": visits, "last_ts": now_iso, "name": g.get("name")}
 
         heat = round(active / visits * 1000, 2) if visits else 0
         has_discord = bool(discord_info["valid"])
@@ -1216,7 +1392,7 @@ def run(client, keywords, args, first_pass=True):
                  + (100 if isinstance(age_days, int) and age_days <= 30 else 0)
                  + (min(int(discord_info["members"] or 0) / 50, 100) if has_discord else 0))
 
-        rows.append({
+        row = {
             "priority_score": round(score),
             "tier": tier,
             "new_this_run": "NEW" if is_new else "",
@@ -1254,9 +1430,15 @@ def run(client, keywords, args, first_pass=True):
             "universe_id": uid, "place_id": g.get("rootPlaceId"),
             "found_via": found.get(uid, ""),
             "checked_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
-        })
-        if idx % 10 == 0:
-            say(f"   enriched {idx}/{len(matches)}")
+        }
+        with _STATE_LOCK:
+            done_count[0] += 1
+            if done_count[0] % 10 == 0:
+                say(f"   enriched {done_count[0]}/{len(matches)}")
+        return row
+
+    for row in _pmap(_enrich, matches, workers):
+        rows.append(row)
 
     rows.sort(key=lambda r: (r["tier"], r["has_discord"] != "YES", -r["priority_score"]))
 

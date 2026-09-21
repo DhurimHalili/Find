@@ -41,7 +41,7 @@ jobs:
           ROBLOSECURITY: ${{ secrets.ROBLOSECURITY }}
         run: |
           python roblox_finder.py --no-golden --keyword-mode full --search-pages 3 \
-            --sort-pages 15 --keyword-limit 250 --snowball-hops 3 --csv \
+            --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv \
             --watchlist-file watchlist_history.csv >> results_history.csv 2>> finder.log
           tail -8 finder.log || true
 
