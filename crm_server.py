@@ -751,6 +751,30 @@ def api_refresh_status(body):
     return {"ok": True, **_refresh_snapshot()}
 
 
+def api_git_pull(body):
+    """One-click cloud fetch: `git pull --ff-only` (never merges, never risks
+    the local tree) followed by a normal sync. Returns short pull output plus
+    the sync counts, so the UI can show everything in one toast."""
+    import subprocess
+    try:
+        p = subprocess.run(["git", "pull", "--ff-only"], capture_output=True,
+                           text=True, timeout=120)
+        out = (p.stdout + p.stderr).strip()
+    except FileNotFoundError:
+        return {"error": "git is not installed or not on PATH"}
+    except subprocess.TimeoutExpired:
+        return {"error": "git pull timed out (network?) -- try again"}
+    if p.returncode != 0:
+        hint = ("Local files changed (a local watcher run?). "
+                "Stop start_finder.bat and report this." if "would be overwritten" in out
+                else "Resolve it in a terminal, then Sync.")
+        return {"error": f"pull refused (no merge attempted, nothing changed): {out[:300]} {hint}"}
+    sync_res = do_sync()
+    first = next((l for l in out.splitlines() if l.strip()), "already up to date")
+    sync_res.update({"ok": True, "pull": first[:160]})
+    return sync_res
+
+
 def api_settings(body):
     with _lock:
         if "cooldown_days" in body:
@@ -835,6 +859,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/check": lambda: api_check(body),
             "/api/refresh_all": lambda: api_refresh_all(body),
             "/api/refresh_status": lambda: api_refresh_status(body),
+            "/api/pull": lambda: api_git_pull(body),
             "/api/settings": lambda: api_settings(body),
         }
         fn = routes.get(path)

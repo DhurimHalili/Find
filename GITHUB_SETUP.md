@@ -54,12 +54,9 @@ and pushes the files back automatically.
 
 ## 4. Daily use from your PC
 
-```powershell
-git pull            # fetch the cloud passes
-python crm_server.py   # or start_crm.bat, then open http://127.0.0.1:8780
-```
-
-Hit **Sync** — new matches and radar rows flow in. Your statuses/notes live in
+Open the CRM (`start_crm.bat`, then `http://127.0.0.1:8780`) and press
+**⬇ Pull** — it fetches cloud results and syncs in one click. The terminal
+equivalent is `git pull` followed by **Sync**. Your statuses/notes live in
 the local `crm_data.json`, untouched by pulls.
 
 ## 5. Maintenance

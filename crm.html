@@ -190,6 +190,7 @@
       <div class="spacer"></div>
       <input id="globalSearch" placeholder="Search games, owners, discords, notes…   ( / )">
       <button class="btn pri" id="syncBtn"><span id="syncIc">⟳</span> Sync</button>
+      <button class="btn" id="pullBtn" title="Fetch cloud results (git pull) then sync — replaces the terminal">⬇ Pull</button>
       <button class="btn" id="refreshAllBtn" title="Re-check every tracked game against live Roblox data (slow, runs in background)">⟳ Refresh all</button>
       <span id="lastSync"></span>
     </div>
@@ -897,6 +898,18 @@ async function doSync(manual){
   return r;
 }
 $("#syncBtn").addEventListener("click", async () => { await doSync(true); refresh(); });
+$("#pullBtn").addEventListener("click", async () => {
+  const btn = $("#pullBtn");
+  btn.disabled = true;
+  btn.innerHTML = "⬇ Pulling…";
+  try {
+    const r = await api("/api/pull", {});
+    if(r.error) toast(r.error, "err");
+    else toast(`${r.pull} — Sync: +${r.imported} new · ${r.updated} updated · ${r.kept ?? 0} kept fresh`, "ok");
+  } catch(e){ toast("Pull failed", "err"); }
+  finally { btn.disabled = false; btn.innerHTML = "⬇ Pull"; }
+  refresh();
+});
 
 /* ---------- bulk refresh (second button: live re-check of everything) ---------- */
 let refreshTimer = null, refreshWasRunning = false;
