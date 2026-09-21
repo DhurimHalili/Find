@@ -28,10 +28,12 @@ Twitter/YouTube/TikTok/Twitch/Instagram links are collected in their own columns
    the list accurate instead of one-off CCU spikes.
 6. **Enrichment** — votes, owner (group owner for group games), Discord + socials:
    official social-links API, regex scan of game/group/owner descriptions, the owner's
-   profile page, **and the creator's ecosystem** (their groups' socials + descriptions
-   and their other games' descriptions). Each Discord invite is **verified live** via
+   profile page, **and the creator's owned ecosystem** (groups they OWN, rank 255 —
+   fan/member groups are never scanned — plus their other games' descriptions).
+   Each Discord invite is **verified live** via
    Discord's public API (server name, members, online). Every row carries `discord_via`
-   -- where the Discord was found (game/group page vs creator ecosystem).
+   -- the exact source (game page, group shout, owner bio, owned group, ...) so a
+   wrong attribution can never hide.
 
 The scan memory lives in `seen_ledger.json` (auto-managed, entries expire after 30 days).
 Delete it to force a full re-scan of everything.

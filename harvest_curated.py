@@ -86,54 +86,32 @@ rows = []
 for idx, (uid, g, tier) in enumerate(matches, 1):
     visits, active, favs = g.get("visits") or 0, g.get("playing") or 0, g.get("favoritedCount") or 0
     up, down = votes.get(uid, (0, 0))
-    creator = g.get("creator") or {}
-    ctype, cid, cname = creator.get("type", ""), creator.get("id"), creator.get("name", "")
-    texts = [g.get("description", "")]
-    group_name = ""
-    if ctype == "Group":
-        grp = rf.fetch_group(client, cid)
-        creator_url = f"https://www.roblox.com/groups/{cid}"
-        texts.append(grp.get("description", ""))
-        texts.append(rf.group_shout_text(grp))
-        texts.append(grp.get("name", ""))
-        group_name = grp.get("name", "")
-        owner = grp.get("owner") or {}
-        owner_name, owner_id = owner.get("username", ""), owner.get("userId")
-        group_members = grp.get("memberCount", "")
-    else:
-        creator_url = f"https://www.roblox.com/users/{cid}/profile"
-        owner_name, owner_id, group_members = cname, cid, ""
-    owner_url = f"https://www.roblox.com/users/{owner_id}/profile" if owner_id else ""
-    owner_desc = ""
-    if owner_id:
-        owner_desc = (rf.fetch_user(client, owner_id) or {}).get("description", "")
-        texts.append(owner_desc)
-        texts.append(rf.fetch_owner_profile_texts(client, owner_id))
-    owner_roblox_signal = "YES" if re.search(r"\broblox\b", owner_desc, re.I) else ""
-    discord_name_signal = ("YES" if rf.has_discord_name_signal(cname, group_name, owner_name)
-                           else "")
+    # Same ownership-gated evidence as the watcher/CRM: fan/member groups are
+    # never scanned, invites verify in trust order with provenance recorded.
+    ev = rf.collect_social_evidence(client, uid, g)
+    ctype, cid, cname = ev["ctype"], ev["cid"], ev["cname"]
+    creator_url, group_name = ev["creator_url"], ev["group_name"]
+    group_members = ev["group_members"]
+    owner_name, owner_id, owner_url = ev["owner_name"], ev["owner_id"], ev["owner_url"]
+    owner_roblox_signal = ev["owner_roblox_signal"]
+    discord_name_signal = ev["discord_name_signal"]
 
     socials = {"discord": [], "youtube": [], "tiktok": [], "twitter": [],
                "twitch": [], "instagram": [], "other": []}
     discord_info = {"valid": False, "name": "", "members": "", "online": ""}
     discord_url = ""
     discord_via = ""
-    official = rf.fetch_social_links(client, uid, ctype, cid)
-    base = rf.extract_socials(texts, official)
-    eco_texts, eco_links = rf.fetch_creator_ecosystem_texts(client, ctype, cid, owner_id)
-    texts.extend(eco_texts)
-    official.extend(eco_links)
-    socials = rf.extract_socials(texts, official)
-    for code in socials["discord"]:
+    socials, prov = rf.extract_socials(ev["labeled_texts"], ev["labeled_links"])
+    for code in rf.rank_discord_codes(socials["discord"], prov):
         info = rf.verify_discord(code)
         if info["valid"]:
             discord_info, discord_url = info, f"https://discord.gg/{code}"
-            discord_via = ("game/group page" if any(code in str(x) for x in base["discord"])
-                           else "creator ecosystem")
+            discord_via = prov.get(code, "")
             break
     if not discord_url and socials["discord"]:
-        discord_url = f"https://discord.gg/{socials['discord'][0]} (UNVERIFIED/expired)"
-        discord_via = "unverified mention"
+        first = rf.rank_discord_codes(socials["discord"], prov)[0]
+        discord_url = f"https://discord.gg/{first} (UNVERIFIED/expired)"
+        discord_via = prov.get(first, "")
 
     created, updated = rf.parse_dt(g.get("created")), rf.parse_dt(g.get("updated"))
     age_days = (datetime.now(timezone.utc) - created).days if created else ""

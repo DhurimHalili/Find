@@ -35,8 +35,9 @@ OUTPUT MODEL -- this script writes NO files. All data goes to stdout, diagnostic
 SOCIAL FILTER: only games with an online presence are reported: a Discord or any other
     social link (YouTube/TikTok/Twitter/Twitch/Instagram/Facebook/other), found on the game page,
     group page (description + shout + official links), group shout, owner profile page/bio,
-    the creator's ecosystem (their other groups incl. shouts + their other games), or a
-    creator/group/owner NAME that advertises a Discord community (discord_name_signal).
+    the owner's OWNED groups (role rank 255 only -- fan/member groups are never
+    scanned, so someone else's Discord can never attach to the game), or a creator/group/owner NAME
+    that advertises a Discord community (discord_name_signal).
     If nothing is found, the owner's profile and bio are the last check before dropping; an owner
     bio mentioning Roblox counts as a presence signal. Zero presence -> removed.
     Disable with --no-social-filter.
@@ -917,11 +918,23 @@ def fetch_owner_profile_texts(client, user_id):
 
 _eco_cache = {}
 
+def _role_is_owner(role):
+    """True only for rank 255 (Owner). Ranks like 243/253 are senior members,
+    NOT owners -- their groups' Discords must never attach to someone's game."""
+    try:
+        return int((role or {}).get("rank") or 0) == 255
+    except (TypeError, ValueError):
+        return False
+
+
 def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
-    """Developer-ecosystem scan: the creator's groups (social links + description) and,
-    for user creators, the descriptions of their other games. Catches Discords that are
-    not on the game page itself -- the dev's community is the same across their games.
-    Returns (extra_texts, extra_official_links). Cached per creator."""
+    """Developer-ecosystem scan with an ownership gate: the creator's OWNED
+    groups (role rank 255 -- social links + description + shout) and, for user
+    creators, the descriptions of their other games. Fan/member groups the dev
+    merely joined are NEVER scanned: their Discords belong to other people's
+    communities and must not attach to this game.
+    Returns (labeled_texts, labeled_links): [(source, text)] and
+    [(type, url, title, source)]. Cached per creator."""
     key = (ctype, cid, owner_id)
     with _CACHE_LOCK:
         if key in _eco_cache:
@@ -936,23 +949,32 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
         seen_groups = set()
         for u in user_ids[:2]:
             gr = client.get(f"https://groups.roblox.com/v1/users/{u}/groups/roles", key="user-groups")
-            for g in (gr or {}).get("data", [])[:8]:
+            owned, skipped = 0, 0
+            for g in (gr or {}).get("data", []):
+                if not _role_is_owner(g.get("role")):
+                    skipped += 1
+                    continue
+                if owned >= 8:
+                    break
                 gid = (g.get("group") or {}).get("id")
                 if not gid or gid in seen_groups:
                     continue
                 seen_groups.add(gid)
+                owned += 1
                 gd = client.get(GROUP_API.format(gid))
+                gname = (gd or {}).get("name", "") or f"group {gid}"
                 if gd:
                     if gd.get("description"):
-                        texts.append(gd["description"])
+                        texts.append((f"owned group description: {gname}", gd["description"]))
                     shout = group_shout_text(gd)
                     if shout:
-                        texts.append(shout)
-                    if gd.get("name"):
-                        texts.append(gd["name"])
+                        texts.append((f"owned group shout: {gname}", shout))
                 sl = client.get(GROUP_SOCIAL_API.format(gid), key="group-social-links")
                 for l in (sl or {}).get("data", []):
-                    links.append((l.get("type", ""), l.get("url", ""), l.get("title", "")))
+                    links.append((l.get("type", ""), l.get("url", ""), l.get("title", ""),
+                                  f"owned group socials: {gname}"))
+            if owned or skipped:
+                tsay(f"   ecosystem: {owned} owned groups scanned, {skipped} member groups ignored")
         if ctype == "User" and cid:
             ug = client.get(USER_GAMES_API.format(cid),
                             {"accessFilter": 2, "limit": 50, "sortOrder": "Desc"}, key="creator-games")
@@ -960,7 +982,8 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
             if other:
                 for g in fetch_details(client, other).values():
                     if g.get("description"):
-                        texts.append(g["description"])
+                        texts.append((f"creator's other game: {g.get('name', g.get('id'))}",
+                                      g["description"]))
     except Exception:
         pass   # ecosystem scan is best-effort enrichment -- never break the pass
     with _CACHE_LOCK:
@@ -969,48 +992,151 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
 
 
 def fetch_social_links(client, universe_id, ctype, cid):
-    """Official social links from game page + group page. Returns list of (type, url, title)."""
+    """Official social links from game page + own group page.
+    Returns [(type, url, title, source)] with provenance labels."""
     links = []
     data = client.get(GAME_SOCIAL_API.format(universe_id), key="game-social-links")
     if data:
         for l in data.get("data", []):
-            links.append((l.get("type", ""), l.get("url", ""), l.get("title", "")))
+            links.append((l.get("type", ""), l.get("url", ""), l.get("title", ""),
+                          "official game link"))
     if ctype == "Group":
+        gname = ""
+        try:
+            gname = (fetch_group(client, cid) or {}).get("name", "")
+        except Exception:
+            pass
+        src = f"official group link: {gname}" if gname else "official group link"
         data = client.get(GROUP_SOCIAL_API.format(cid), key="group-social-links")
         if data:
             for l in data.get("data", []):
-                links.append((l.get("type", ""), l.get("url", ""), l.get("title", "")))
+                links.append((l.get("type", ""), l.get("url", ""), l.get("title", ""), src))
     return links
 
 
-def extract_socials(texts, official_links):
-    """Merge official links + regex-scanned descriptions. Returns dict of lists."""
+def extract_socials(labeled_texts, labeled_links):
+    """Merge official links + regex-scanned texts. Inputs carry provenance:
+    labeled_texts = [(source, text)], labeled_links = [(type, url, title, source)].
+    Returns (socials, prov): socials is the usual dict of lists (discovery
+    order, deduped, generic Roblox links removed); prov maps each found token
+    to the label of where it was FIRST seen (most authoritative source first,
+    so callers must pass game-page evidence before ecosystem evidence)."""
     out = {"discord": [], "youtube": [], "tiktok": [], "twitter": [], "twitch": [], "instagram": [], "other": []}
-    for t, url, title in official_links:
+    prov = {}
+
+    def note(token, source):
+        if token and token not in prov:
+            prov[token] = source
+
+    for t, url, title, source in labeled_links:
         tl, ul = (t or "").lower(), (url or "")
         if "discord" in tl or DISCORD_RE.search(ul):
             m = DISCORD_RE.search(ul)
-            out["discord"].append(m.group(1) if m else ul)
-        elif "youtube" in tl: out["youtube"].append(ul)
-        elif "tiktok" in tl: out["tiktok"].append(ul)
-        elif "twitter" in tl or tl == "x": out["twitter"].append(ul)
-        elif "twitch" in tl: out["twitch"].append(ul)
-        elif "instagram" in tl: out["instagram"].append(ul)
-        elif ul: out["other"].append(f"{t}:{ul}")
-    for text in texts:
+            code = m.group(1) if m else ul
+            out["discord"].append(code)
+            note(code, source)
+        elif "youtube" in tl:
+            out["youtube"].append(ul); note(ul, source)
+        elif "tiktok" in tl:
+            out["tiktok"].append(ul); note(ul, source)
+        elif "twitter" in tl or tl == "x":
+            out["twitter"].append(ul); note(ul, source)
+        elif "twitch" in tl:
+            out["twitch"].append(ul); note(ul, source)
+        elif "instagram" in tl:
+            out["instagram"].append(ul); note(ul, source)
+        elif ul:
+            out["other"].append(f"{t}:{ul}"); note(f"{t}:{ul}", source)
+    for source, text in labeled_texts:
         if not text:
             continue
         for m in DISCORD_RE.finditer(text):
             out["discord"].append(m.group(1))
+            note(m.group(1), source)
         for m in FACEBOOK_RE.finditer(text):
             # Facebook has no dedicated column -- presence counts via other_links.
             out["other"].append(m.group(0))
+            note(m.group(0), source)
         for k, rx in SOCIAL_RES.items():
             for m in rx.finditer(text):
                 out[k].append(m.group(0))
+                note(m.group(0), source)
     for k in out:
         out[k] = [u for u in dict.fromkeys(out[k]) if not GENERIC_SOCIAL_RE.search(u)]
-    return out
+    return out, prov
+
+
+def source_trust(source):
+    """Lower = more authoritative. A valid invite from the game page always
+    outranks one from the wider ecosystem, so a stray-but-live invite found
+    far from the game can never shadow the real one."""
+    s = (source or "").lower()
+    if s.startswith("official game link"):
+        return 0
+    if s.startswith("game description"):
+        return 1
+    if s.startswith("official group link"):
+        return 2
+    if s.startswith("group description") or s.startswith("group shout"):
+        return 3
+    if s.startswith("owner bio") or s.startswith("owner profile"):
+        return 4
+    if "owned group" in s or "other game" in s:
+        return 5
+    return 6
+
+
+def collect_social_evidence(client, uid, det):
+    """Authoritative, ownership-gated evidence bundle for one universe.
+    Order is trust order: game page -> own group -> owner -> owned ecosystem.
+    Fan/member groups are never scanned (see fetch_creator_ecosystem_texts).
+    Returns a dict with creator/owner fields plus labeled_texts/labeled_links
+    ready for extract_socials()."""
+    creator = det.get("creator") or {}
+    ctype, cid, cname = creator.get("type", ""), creator.get("id"), creator.get("name", "")
+    labeled_texts = [("game description", det.get("description", ""))]
+    group_name = ""
+    if ctype == "Group":
+        grp = fetch_group(client, cid)
+        group_name = grp.get("name", "")
+        creator_url = f"https://www.roblox.com/groups/{cid}"
+        labeled_texts.append(("group description", grp.get("description", "")))
+        labeled_texts.append(("group shout", group_shout_text(grp)))
+        labeled_texts.append(("group name", group_name))
+        owner = grp.get("owner") or {}
+        owner_name, owner_id = owner.get("username", ""), owner.get("userId")
+        group_members = grp.get("memberCount", "")
+    else:
+        creator_url = f"https://www.roblox.com/users/{cid}/profile"
+        owner_name, owner_id, group_members = cname, cid, ""
+    owner_url = f"https://www.roblox.com/users/{owner_id}/profile" if owner_id else ""
+    owner_desc = ""
+    if owner_id:
+        owner_desc = (fetch_user(client, owner_id) or {}).get("description", "")
+        labeled_texts.append(("owner bio", owner_desc))
+        labeled_texts.append(("owner profile", fetch_owner_profile_texts(client, owner_id)))
+    owner_roblox_signal = "YES" if re.search(r"\broblox\b", owner_desc, re.I) else ""
+    discord_name_signal = ("YES" if has_discord_name_signal(cname, group_name, owner_name)
+                           else "")
+
+    labeled_links = fetch_social_links(client, uid, ctype, cid)
+    eco_texts, eco_links = fetch_creator_ecosystem_texts(client, ctype, cid, owner_id)
+    labeled_texts.extend(eco_texts)
+    labeled_links.extend(eco_links)
+    return {
+        "ctype": ctype, "cid": cid, "cname": cname,
+        "creator_url": creator_url, "group_name": group_name,
+        "group_members": group_members, "owner_name": owner_name,
+        "owner_id": owner_id, "owner_url": owner_url, "owner_desc": owner_desc,
+        "owner_roblox_signal": owner_roblox_signal,
+        "discord_name_signal": discord_name_signal,
+        "labeled_texts": labeled_texts, "labeled_links": labeled_links,
+    }
+
+
+def rank_discord_codes(codes, prov):
+    """Deduped invite codes, most-authoritative source first (stable for ties)."""
+    return sorted(dict.fromkeys(codes), key=lambda c: source_trust(prov.get(c, "")))
 
 
 def has_discord_name_signal(*names):
@@ -1318,55 +1444,34 @@ def run(client, keywords, args, first_pass=True):
         visits, active, favs = g.get("visits") or 0, g.get("playing") or 0, g.get("favoritedCount") or 0
         tier = classify(visits, active)
         up, down = votes.get(uid, (0, 0))
-        creator = g.get("creator") or {}
-        ctype, cid, cname = creator.get("type", ""), creator.get("id"), creator.get("name", "")
-        texts = [g.get("description", "")]
-
-        if ctype == "Group":
-            grp = fetch_group(client, cid)
-            creator_url = f"https://www.roblox.com/groups/{cid}"
-            texts.append(grp.get("description", ""))
-            texts.append(group_shout_text(grp))
-            texts.append(grp.get("name", ""))
-            owner = grp.get("owner") or {}
-            owner_name, owner_id = owner.get("username", ""), owner.get("userId")
-            group_members = grp.get("memberCount", "")
-            group_name = grp.get("name", "")
-        else:
-            creator_url = f"https://www.roblox.com/users/{cid}/profile"
-            owner_name, owner_id, group_members = cname, cid, ""
-            group_name = ""
-        owner_url = f"https://www.roblox.com/users/{owner_id}/profile" if owner_id else ""
-        owner_desc = ""
-        if owner_id:
-            owner_desc = (fetch_user(client, owner_id) or {}).get("description", "")
-            texts.append(owner_desc)
-            texts.append(fetch_owner_profile_texts(client, owner_id))
-        owner_roblox_signal = "YES" if re.search(r"\broblox\b", owner_desc, re.I) else ""
-        discord_name_signal = ("YES" if has_discord_name_signal(cname, group_name, owner_name)
-                               else "")
+        # Authoritative, ownership-gated evidence (game page -> own group ->
+        # owner -> OWNED ecosystem). Fan/member groups are never scanned, so a
+        # stray-but-live invite from someone else's community can neither
+        # attach here nor outrank the real one (trust-ordered verification).
+        ev = collect_social_evidence(client, uid, g)
+        ctype, cid, cname = ev["ctype"], ev["cid"], ev["cname"]
+        creator_url, group_name = ev["creator_url"], ev["group_name"]
+        group_members = ev["group_members"]
+        owner_name, owner_id, owner_url = ev["owner_name"], ev["owner_id"], ev["owner_url"]
+        owner_roblox_signal = ev["owner_roblox_signal"]
+        discord_name_signal = ev["discord_name_signal"]
 
         socials = {"discord": [], "youtube": [], "tiktok": [], "twitter": [], "twitch": [], "instagram": [], "other": []}
         discord_info = {"valid": False, "name": "", "members": "", "online": ""}
         discord_url = ""
         discord_via = ""
         if not args.no_discord:
-            official = fetch_social_links(client, uid, ctype, cid)
-            base = extract_socials(texts, official)
-            eco_texts, eco_links = fetch_creator_ecosystem_texts(client, ctype, cid, owner_id)
-            texts.extend(eco_texts)
-            official.extend(eco_links)
-            socials = extract_socials(texts, official)
-            for code in socials["discord"]:
+            socials, prov = extract_socials(ev["labeled_texts"], ev["labeled_links"])
+            for code in rank_discord_codes(socials["discord"], prov):
                 info = verify_discord(code)
                 if info["valid"]:
                     discord_info, discord_url = info, f"https://discord.gg/{code}"
-                    discord_via = ("game/group page" if any(code in str(x) for x in base["discord"])
-                                   else "creator ecosystem")
+                    discord_via = prov.get(code, "")
                     break
             if not discord_url and socials["discord"]:
-                discord_url = f"https://discord.gg/{socials['discord'][0]} (UNVERIFIED/expired)"
-                discord_via = "unverified mention"
+                first = rank_discord_codes(socials["discord"], prov)[0]
+                discord_url = f"https://discord.gg/{first} (UNVERIFIED/expired)"
+                discord_via = prov.get(first, "")
 
         created, updated = parse_dt(g.get("created")), parse_dt(g.get("updated"))
         age_days = (datetime.now(timezone.utc) - created).days if created else ""
