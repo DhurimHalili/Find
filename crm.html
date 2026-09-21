@@ -209,7 +209,7 @@ let S = null;                 // {games, deleted, settings, activity, meta, stat
 let VIEW = "dashboard";
 let F = { q: "", status: "", tier: "", discordOnly: false, sort: "priority_score", dir: -1 };
 let OPEN_UID = null;          // game open in drawer
-let R = { minCcu: "", minVisits: "", trend: "", gradOnly: false };   // radar filters
+let R = { minCcu: "", maxCcu: "", minVisits: "", maxVisits: "", trend: "", gradOnly: false };   // radar filters
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = n => (n === "" || n === null || n === undefined || isNaN(Number(n))) ? "—" : Number(n).toLocaleString("en-US");
@@ -534,17 +534,22 @@ function radarGapTag(e){
 }
 function renderRadar(){
   let list = [...(S.radar || [])];
-  const minC = parseInt(R.minCcu, 10) || 0, minV = parseInt(R.minVisits, 10) || 0;
+  const minC = parseInt(R.minCcu, 10) || 0, maxC = parseInt(R.maxCcu, 10) || 0;
+  const minV = parseInt(R.minVisits, 10) || 0, maxV = parseInt(R.maxVisits, 10) || 0;
   if(minC > 0) list = list.filter(e => (e.active || 0) >= minC);
+  if(maxC > 0) list = list.filter(e => (e.active || 0) <= maxC);
   if(minV > 0) list = list.filter(e => (e.visits || 0) >= minV);
+  if(maxV > 0) list = list.filter(e => (e.visits || 0) <= maxV);
   if(R.trend) list = list.filter(e => radarTrend(e).k === R.trend);
   if(R.gradOnly) list = list.filter(e => { const g = radarGap(e); return g && g.gap <= 100; });
   list.sort((a,b) => (b.active || 0) - (a.active || 0));
   const rising = (S.radar || []).filter(e => radarTrend(e).k === "rising").length;
   $("#view").innerHTML = `
   <div class="filters">
-    <input id="rMinCcu" type="number" min="0" placeholder="Min CCU (e.g. 500)" value="${esc(R.minCcu)}" style="width:170px">
-    <input id="rMinVis" type="number" min="0" placeholder="Min visits (e.g. 100000)" value="${esc(R.minVisits)}" style="width:190px">
+    <input id="rMinCcu" type="number" min="0" placeholder="Min CCU (e.g. 500)" value="${esc(R.minCcu)}" style="width:150px">
+    <input id="rMaxCcu" type="number" min="0" placeholder="Max CCU" value="${esc(R.maxCcu)}" style="width:110px">
+    <input id="rMinVis" type="number" min="0" placeholder="Min visits (e.g. 100000)" value="${esc(R.minVisits)}" style="width:180px">
+    <input id="rMaxVis" type="number" min="0" placeholder="Max visits (e.g. 500000)" value="${esc(R.maxVisits)}" style="width:180px">
     <select id="rTrend">
       <option value="">All trends</option>
       <option value="rising" ${R.trend==="rising"?"selected":""}>▲ Rising</option>
@@ -585,8 +590,14 @@ function renderRadar(){
   $("#rMinCcu").oninput = e => { R.minCcu = e.target.value; render();
     const el = $("#rMinCcu"); el.focus(); const i = el.value.length;
     try{ el.setSelectionRange(i, i); }catch(err){} };
+  $("#rMaxCcu").oninput = e => { R.maxCcu = e.target.value; render();
+    const el = $("#rMaxCcu"); el.focus(); const i = el.value.length;
+    try{ el.setSelectionRange(i, i); }catch(err){} };
   $("#rMinVis").oninput = e => { R.minVisits = e.target.value; render();
     const el = $("#rMinVis"); el.focus(); const i = el.value.length;
+    try{ el.setSelectionRange(i, i); }catch(err){} };
+  $("#rMaxVis").oninput = e => { R.maxVisits = e.target.value; render();
+    const el = $("#rMaxVis"); el.focus(); const i = el.value.length;
     try{ el.setSelectionRange(i, i); }catch(err){} };
   $("#rTrend").onchange = e => { R.trend = e.target.value; render(); };
   $("#rGrad").onchange = e => { R.gradOnly = e.target.checked; render(); };
