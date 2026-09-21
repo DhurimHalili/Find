@@ -190,6 +190,7 @@
       <div class="spacer"></div>
       <input id="globalSearch" placeholder="Search games, owners, discords, notes…   ( / )">
       <button class="btn pri" id="syncBtn"><span id="syncIc">⟳</span> Sync</button>
+      <button class="btn" id="refreshAllBtn" title="Re-check every tracked game against live Roblox data (slow, runs in background)">⟳ Refresh all</button>
       <span id="lastSync"></span>
     </div>
     <div id="view"></div>
@@ -282,7 +283,7 @@ function confirmModal(title, text, confirmLabel, onOk){
 }
 
 /* ============================== data ============================== */
-async function fmtDur(s){
+function fmtDur(s){
   s = Math.max(0, Math.floor(s||0));
   const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
   return h ? `${h}h ${m}m` : (m ? `${m}m` : `${s}s`);
@@ -316,10 +317,20 @@ function renderRuntime(){
   const golden = rt.in_window
     ? `<span style="color:var(--good)">● inside golden window</span>`
     : `next window at ${rt.next_window ? new Date(rt.next_window).toTimeString().slice(0,5) : "?"}`;
+  // Data-file age is the number that matters: stale files mean `git pull`
+  // hasn't been run (cloud results waiting) or the cloud workflow is quiet.
+  let csvLine = "no results file yet";
+  if(w.csv_age_s !== null && w.csv_age_s !== undefined){
+    const csvRel = rel(new Date(Date.now() - w.csv_age_s * 1000).toISOString());
+    csvLine = w.csv_age_s < 6 * 3600
+      ? `results file active ${csvRel}`
+      : `<span style="color:var(--warn)">results file ${csvRel} old — git pull for cloud results</span>`;
+  }
   $("#lastSync").innerHTML =
     `<div style="text-align:right;font-size:11px;line-height:1.55;color:var(--mut2)">
       <div>${golden} (12-16, 20-02)</div>
-      <div>watcher <span style="color:${live ? "var(--good)" : "var(--mut2)"}">${live ? "●" : "○"}</span> ${esc(phase)} · active ${ageTxt}</div>
+      <div>${csvLine}</div>
+      <div>local watcher file <span style="color:${live ? "var(--good)" : "var(--mut2)"}">${live ? "●" : "○"}</span> ${esc(phase)} · active ${ageTxt}</div>
       <div>CRM up ${fmtDur(rt.crm_uptime_s)} · synced ${S.meta.last_sync ? rel(S.meta.last_sync) : "never"}</div>
     </div>`;
 }
@@ -879,13 +890,46 @@ async function doSync(manual){
     r = await api("/api/sync", {});
     if(manual){
       if(r.error) toast(r.error, "err");
-      else toast(`Sync: +${r.imported} new · ${r.updated} updated · ${r.cooling} cooling · ${r.excluded} do-not-buy`, "ok");
+      else toast(`Sync: +${r.imported} new · ${r.updated} updated · ${r.kept ?? 0} kept fresh · ${r.cooling} cooling · ${r.excluded} do-not-buy`, "ok");
     }
   } catch(e){ if(manual) toast("Sync failed", "err"); }
   finally { if(manual) $("#syncIc").className = ""; }
   return r;
 }
 $("#syncBtn").addEventListener("click", async () => { await doSync(true); refresh(); });
+
+/* ---------- bulk refresh (second button: live re-check of everything) ---------- */
+let refreshTimer = null, refreshWasRunning = false;
+async function pollRefresh(){
+  let r = null;
+  try { r = await api("/api/refresh_status", {}); } catch(e){ return; }
+  const btn = $("#refreshAllBtn");
+  if(!btn) return;
+  if(r.running){
+    refreshWasRunning = true;
+    btn.disabled = true;
+    btn.innerHTML = `⟳ ${r.done}/${r.total}…`;
+    btn.title = r.current ? `Refreshing: ${r.current}` : "Refreshing…";
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = "⟳ Refresh all";
+    btn.title = "Re-check every tracked game against live Roblox data (slow, runs in background)";
+    if(refreshWasRunning){
+      refreshWasRunning = false;
+      if(refreshTimer){ clearInterval(refreshTimer); refreshTimer = null; }
+      toast(`Refresh finished: ${r.done ?? 0} games${r.errors ? ` (${r.errors} failed)` : ""}`, r.errors ? "" : "ok");
+      refresh();
+    }
+  }
+}
+$("#refreshAllBtn").addEventListener("click", async () => {
+  const r = await api("/api/refresh_all", {});
+  if(r.error) return toast(r.error, "err");
+  if(r.already){ toast(`Refresh already running (${r.done}/${r.total})…`); }
+  else toast(`Refreshing ${r.total} games in background — stalest first`, "ok");
+  if(!refreshTimer) refreshTimer = setInterval(pollRefresh, 5000);
+  pollRefresh();
+});
 document.addEventListener("keydown", e => {
   if(e.key === "/" && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA"){
     e.preventDefault(); $("#globalSearch").focus();
@@ -893,7 +937,11 @@ document.addEventListener("keydown", e => {
   if(e.key === "Escape"){ closeDrawer(); $("#modal").classList.remove("on"); }
 });
 
-refresh().then(async () => { await doSync(false); await refresh(); });
+refresh().then(async () => { await doSync(false); await refresh();
+  try { const r = await api("/api/refresh_status", {});
+    if(r.running && !refreshTimer) refreshTimer = setInterval(pollRefresh, 5000);
+  } catch(e){}
+});
 setInterval(() => { if(!OPEN_UID) refresh(); }, 45000);
 setInterval(async () => { await doSync(false); if(!OPEN_UID) refresh(); }, 600000);
 </script>

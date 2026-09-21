@@ -388,7 +388,7 @@ def do_sync():
     with _lock:
         best, excluded = merge_source_rows()
         now = datetime.now(timezone.utc)
-        imported = updated = cooling = frozen = 0
+        imported = updated = cooling = frozen = kept = 0
         for uid, r in best.items():
             uid = str(uid)   # all lookups/keys are string universe ids
             if uid in DATA["deleted"]:
@@ -406,6 +406,18 @@ def do_sync():
             if uid in DATA["games"]:
                 g = DATA["games"][uid]
                 crm_fields = {k: g.get(k) for k in crm_fields}
+                # NEWEST-WINS: a manual Check / Refresh-all newer than this CSV
+                # row must never be clobbered by stale watcher data. Keep the
+                # fresh stats, just fold in the best peak ever seen.
+                if (g.get("checked_at_utc") or "") >= (r.get("checked_at_utc") or "") \
+                        and g.get("checked_at_utc"):
+                    kept += 1
+                    g["peak_active_seen"] = max(to_i(g.get("peak_active_seen")),
+                                                to_i(r.get("peak_active_seen")),
+                                                to_i(r.get("active")))
+                    g["tier"] = rf.classify(g.get("visits") or 0, g.get("active") or 0)
+                    DATA["games"][uid] = g
+                    continue
                 updated += 1
             else:
                 imported += 1
@@ -427,13 +439,13 @@ def do_sync():
             DATA["games"][uid] = row
         radar_touched = do_radar_sync(now)
         DATA["meta"]["last_sync"] = utc_now()
-        log_act("sync", f"sync done: +{imported} new, {updated} updated, "
+        log_act("sync", f"sync done: +{imported} new, {updated} updated, {kept} kept fresh, "
                         f"{cooling} skipped (cooldown), {frozen} rejected-frozen, "
                         f"{excluded} do-not-buy rows ignored, radar +{radar_touched}")
         save_data()
         return {"imported": imported, "updated": updated, "cooling": cooling,
                 "frozen": frozen, "excluded": excluded, "radar": radar_touched,
-                "total": len(DATA["games"])}
+                "kept": kept, "total": len(DATA["games"])}
 
 
 # ---------------------------------------------------------------- API handlers
@@ -663,6 +675,82 @@ def api_check(body):
         return {"ok": True}
 
 
+# ---------------------------------------------------------------- bulk refresh
+# "Refresh all": re-enriches every tracked game with live Roblox data in a
+# background thread (full enrich_one quality: stats, owner, Discord verify).
+# Stalest-first so an interruption still fixes the worst rows. Progress is
+# polled via /api/refresh_status; only one job runs at a time.
+_REFRESH = {"running": False, "total": 0, "done": 0, "current": "", "errors": 0,
+            "started": None, "finished": None}
+_REFRESH_LOCK = threading.Lock()
+
+
+def _refresh_snapshot():
+    with _REFRESH_LOCK:
+        return dict(_REFRESH)
+
+
+def api_refresh_all(body):
+    with _REFRESH_LOCK:
+        if _REFRESH["running"]:
+            return {"ok": True, "already": True, **dict(_REFRESH)}
+    ids = body.get("universe_ids")
+    with _lock:
+        if isinstance(ids, list) and ids:
+            wanted = {str(to_i(x)) for x in ids}
+            uids = [u for u in DATA["games"] if u in wanted]
+        else:
+            uids = list(DATA["games"].keys())
+        uids = [u for u in uids if (DATA["games"][u].get("status") or "new") != "rejected"]
+        uids.sort(key=lambda u: DATA["games"][u].get("checked_at_utc", "") or "")
+    with _REFRESH_LOCK:
+        _REFRESH.update({"running": True, "total": len(uids), "done": 0,
+                         "current": "", "errors": 0,
+                         "started": utc_now(), "finished": None})
+    threading.Thread(target=_refresh_worker, args=(uids,), daemon=True).start()
+    return {"ok": True, "total": len(uids)}
+
+
+def _refresh_worker(uids):
+    client = make_client()
+    for uid in uids:
+        with _lock:
+            g = DATA["games"].get(uid)
+            title = (g or {}).get("title", uid)
+        with _REFRESH_LOCK:
+            _REFRESH["current"] = title
+        try:
+            row = enrich_one(client, to_i(uid))
+        except Exception:
+            row = None
+        with _lock:
+            g = DATA["games"].get(uid)
+            if g and row:
+                crm = {k: g.get(k) for k in ("status", "notes", "added_at",
+                                             "contacted_at", "status_history",
+                                             "found_via")}
+                row.update(crm)
+                row["peak_active_seen"] = max(to_i(row.get("peak_active_seen")),
+                                              to_i(row.get("active")),
+                                              to_i(g.get("peak_active_seen")))
+                DATA["games"][uid] = row
+                save_data()
+            with _REFRESH_LOCK:
+                _REFRESH["done"] += 1
+                if not row:
+                    _REFRESH["errors"] += 1
+    with _lock:
+        log_act("refresh", f"bulk refresh finished: {_REFRESH['done']} games, "
+                           f"{_REFRESH['errors']} failed")
+        save_data()
+    with _REFRESH_LOCK:
+        _REFRESH.update({"running": False, "current": "", "finished": utc_now()})
+
+
+def api_refresh_status(body):
+    return {"ok": True, **_refresh_snapshot()}
+
+
 def api_settings(body):
     with _lock:
         if "cooldown_days" in body:
@@ -745,6 +833,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/purge_expired": lambda: api_purge_expired(),
             "/api/add": lambda: api_add(body),
             "/api/check": lambda: api_check(body),
+            "/api/refresh_all": lambda: api_refresh_all(body),
+            "/api/refresh_status": lambda: api_refresh_status(body),
             "/api/settings": lambda: api_settings(body),
         }
         fn = routes.get(path)

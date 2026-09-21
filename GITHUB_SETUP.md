@@ -32,7 +32,7 @@ Create an empty **public** repo on github.com (no README/license, to avoid
 merge work), then:
 
 ```powershell
-git remote add origin https://github.com/<you>/<repo>.git
+git remote add origin https://github.com/DhurimHalili/Find.git
 git push -u origin main
 ```
 
