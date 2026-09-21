@@ -209,6 +209,7 @@ let S = null;                 // {games, deleted, settings, activity, meta, stat
 let VIEW = "dashboard";
 let F = { q: "", status: "", tier: "", discordOnly: false, sort: "priority_score", dir: -1 };
 let OPEN_UID = null;          // game open in drawer
+let R = { minCcu: "", minVisits: "", trend: "", gradOnly: false };   // radar filters
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = n => (n === "" || n === null || n === undefined || isNaN(Number(n))) ? "—" : Number(n).toLocaleString("en-US");
@@ -500,33 +501,77 @@ function renderPipeline(){
 }
 
 /* ---------- early radar ---------- */
+const RADAR_TIERS = [
+  {l:"BEST", maxV:40000, minA:100},
+  {l:"GREAT", maxV:100000, minA:600},
+  {l:"GOOD", maxV:200000, minA:800},
+  {l:"MID", maxV:500000, minA:800},
+];
 function radarTrend(e){
-  if((e.sightings || 1) <= 1) return `<span class="tag">● new</span>`;
+  if((e.sightings || 1) <= 1) return {k:"new", html:`<span class="tag">● new</span>`};
   const d = (e.active || 0) - (e.first_active || 0);
-  if(d > 0) return `<span class="tag" style="color:var(--good)">▲ rising +${fmt(d)}</span>`;
-  if(d < 0) return `<span class="tag" style="color:var(--bad)">▼ cooling ${fmt(d)}</span>`;
-  return `<span class="tag">━ flat</span>`;
+  if(d > 0) return {k:"rising", html:`<span class="tag" style="color:var(--good)">▲ rising +${fmt(d)}</span>`};
+  if(d < 0) return {k:"cooling", html:`<span class="tag" style="color:var(--bad)">▼ cooling ${fmt(d)}</span>`};
+  return {k:"flat", html:`<span class="tag">━ flat</span>`};
+}
+function radarGap(e){
+  // closest tier this game could graduate to (null = visits too big for any tier)
+  let best = null;
+  for(const t of RADAR_TIERS){
+    if((e.visits || 0) >= t.maxV) continue;
+    const gap = t.minA - (e.active || 0);
+    if(gap <= 0) return {t: t.l, gap: 0};
+    if(!best || gap < best.gap) best = {t: t.l, gap};
+  }
+  return best;
+}
+function radarGapTag(e){
+  const g = radarGap(e);
+  if(!g) return `<span class="tag">too big</span>`;
+  if(g.gap === 0) return `<span class="tag" style="color:var(--good)">★ qualifies — Track it!</span>`;
+  if(g.gap <= 100) return `<span class="tag" style="color:var(--warn)">${fmt(g.gap)} CCU from ${g.t}</span>`;
+  return `<span class="tag">${fmt(g.gap)} from ${g.t}</span>`;
 }
 function renderRadar(){
-  const R = [...(S.radar || [])].sort((a,b) => (b.active || 0) - (a.active || 0));
-  const rising = R.filter(e => (e.sightings || 1) > 1 && (e.active || 0) > (e.first_active || 0)).length;
+  let list = [...(S.radar || [])];
+  const minC = parseInt(R.minCcu, 10) || 0, minV = parseInt(R.minVisits, 10) || 0;
+  if(minC > 0) list = list.filter(e => (e.active || 0) >= minC);
+  if(minV > 0) list = list.filter(e => (e.visits || 0) >= minV);
+  if(R.trend) list = list.filter(e => radarTrend(e).k === R.trend);
+  if(R.gradOnly) list = list.filter(e => { const g = radarGap(e); return g && g.gap <= 100; });
+  list.sort((a,b) => (b.active || 0) - (a.active || 0));
+  const rising = (S.radar || []).filter(e => radarTrend(e).k === "rising").length;
   $("#view").innerHTML = `
   <div class="filters">
-    <span style="color:var(--mut);font-size:13px">Games at <b>50+ CCU</b> that haven't hit a tier yet.
-    A riser here today is a pipeline match tomorrow — <b>Track</b> pulls it in with full Discord enrichment now.</span>
+    <input id="rMinCcu" type="number" min="0" placeholder="Min CCU (e.g. 500)" value="${esc(R.minCcu)}" style="width:170px">
+    <input id="rMinVis" type="number" min="0" placeholder="Min visits (e.g. 100000)" value="${esc(R.minVisits)}" style="width:190px">
+    <select id="rTrend">
+      <option value="">All trends</option>
+      <option value="rising" ${R.trend==="rising"?"selected":""}>▲ Rising</option>
+      <option value="new" ${R.trend==="new"?"selected":""}>● New</option>
+      <option value="cooling" ${R.trend==="cooling"?"selected":""}>▼ Cooling</option>
+      <option value="flat" ${R.trend==="flat"?"selected":""}>━ Flat</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="rGrad" ${R.gradOnly?"checked":""}> Near tier (≤100 CCU away)</label>
     <div class="spacer"></div>
     <button class="btn sm bad" id="radarClearBtn">✕ Clear radar</button>
-    <span class="tag">${R.length} tracked · ${rising} rising</span>
+    <span class="tag">${list.length}/${(S.radar || []).length} shown · ${rising} rising</span>
   </div>
-  ${R.length ? `<table><thead><tr><th>Game</th><th>CCU now</th><th>Peak</th><th>Trend</th>
+  <div class="filters">
+    <span style="color:var(--mut);font-size:12.5px">Games at <b>50+ CCU</b> that haven't hit a tier yet.
+    A riser here today is a pipeline match tomorrow — <b>Track</b> pulls it in with full Discord enrichment now.
+    The <b>Tier gap</b> column shows how far each game is from graduating.</span>
+  </div>
+  ${list.length ? `<table><thead><tr><th>Game</th><th>CCU now</th><th>Peak</th><th>Trend</th><th>Tier gap</th>
     <th>Visits</th><th>Seen</th><th>Last seen</th><th></th></tr></thead><tbody>
-    ${R.map(e => `
+    ${list.map(e => `
       <tr data-uid="${e.universe_id}" style="cursor:default">
         <td><div class="title" title="${esc(e.title)}">${esc(e.title)}</div>
             <div class="under">${esc(e.creator || "—")} · universe ${e.universe_id}</div></td>
         <td class="num">${fmt(e.active)}</td>
         <td class="num">${fmt(e.peak_active)}</td>
-        <td>${radarTrend(e)}</td>
+        <td>${radarTrend(e).html}</td>
+        <td>${radarGapTag(e)}</td>
         <td class="num">${fmt(e.visits)}</td>
         <td class="num">${e.sightings || 1}×</td>
         <td class="under">${rel(e.last_seen ? (e.last_seen.length === 16 ? e.last_seen.replace(" ","T") + "Z" : e.last_seen) : null)}</td>
@@ -534,15 +579,26 @@ function renderRadar(){
           <button class="btn sm pri" data-track="${esc(e.game_url)}" title="Full enrichment + add to pipeline">＋ Track</button>
           <button class="iconbtn" data-openurl="${esc(e.game_url)}" title="Open in Roblox">↗</button>
         </td></tr>`).join("")}</tbody></table>`
-    : `<div class="empty">Radar is empty — it fills up on the next watcher pass (needs <b>--watchlist-file</b> in start_finder.bat).</div>`}`;
+    : ((S.radar || []).length
+        ? `<div class="empty">No radar games match these filters — loosen them.</div>`
+        : `<div class="empty">Radar is empty — it fills up on the next watcher pass.</div>`)}`;
+  $("#rMinCcu").oninput = e => { R.minCcu = e.target.value; render();
+    const el = $("#rMinCcu"); el.focus(); const i = el.value.length;
+    try{ el.setSelectionRange(i, i); }catch(err){} };
+  $("#rMinVis").oninput = e => { R.minVisits = e.target.value; render();
+    const el = $("#rMinVis"); el.focus(); const i = el.value.length;
+    try{ el.setSelectionRange(i, i); }catch(err){} };
+  $("#rTrend").onchange = e => { R.trend = e.target.value; render(); };
+  $("#rGrad").onchange = e => { R.gradOnly = e.target.checked; render(); };
   document.querySelectorAll("[data-track]").forEach(b => b.onclick = async e => {
     e.stopPropagation(); await doAdd(b.dataset.track);
   });
   const rc = $("#radarClearBtn");
   if(rc) rc.onclick = () => {
-    if(!R.length) return toast("Radar is already empty", "err");
+    const n = (S.radar || []).length;
+    if(!n) return toast("Radar is already empty", "err");
     confirmModal(`Clear early radar?`,
-      `${R.length} entr${R.length > 1 ? "ies" : "y"} removed. It refills automatically on the next watcher pass.`,
+      `${n} entr${n > 1 ? "ies" : "y"} removed. It refills automatically on the next watcher pass.`,
       "Clear", async () => {
         const r = await api("/api/radar_clear", {});
         r.error ? toast(r.error, "err") : toast(`Cleared ${r.cleared ?? 0} entries`, "ok");
