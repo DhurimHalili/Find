@@ -8,9 +8,9 @@ name: watcher
 
 "on":
   schedule:
-    # Hourly at :15 UTC. GitHub may start runs a few minutes late under load;
-    # each pass takes ~15 min, well inside the timeout.
-    - cron: "15 * * * *"
+    # Twice hourly at :15 and :45 UTC (passes take ~10-15 min; the concurrency
+    # group guarantees they never overlap). GitHub may start runs late.
+    - cron: "15,45 * * * *"
   workflow_dispatch: {}  # manual "Run workflow" button for on-demand passes
 
 concurrency:
@@ -43,7 +43,9 @@ jobs:
           python roblox_finder.py --no-golden --keyword-mode full --search-pages 3 \
             --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv \
             --watchlist-file watchlist_history.csv \
-            --nodiscord-file nodiscord_history.csv >> results_history.csv 2>> finder.log
+            --nodiscord-file nodiscord_history.csv \
+            --seed-file watchlist_history.csv --seed-file results_history.csv \
+            >> results_history.csv 2>> finder.log
           tail -8 finder.log || true
 
       - name: Commit results back

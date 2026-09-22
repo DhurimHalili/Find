@@ -1194,6 +1194,12 @@ def main():
     ap.add_argument("--no-exclusions", action="store_true",
                     help="report modded/reuploaded/NSFW/non-English games too (default: excluded)")
     ap.add_argument("--seeds", nargs="*", default=[], help="extra universe IDs to check")
+    ap.add_argument("--seed-file", action="append", default=[],
+                    help="CSV file(s) with a universe_id column to re-check every pass "
+                         "(e.g. watchlist_history.csv = yesterday's near-misses get "
+                         "fresh stats until they graduate or cool; repeatable)")
+    ap.add_argument("--seed-max", type=int, default=150,
+                    help="max recent IDs taken per seed file (newest rows first)")
     ap.add_argument("--no-prefilter", action="store_true", help="don't skip <50-player search results")
     ap.add_argument("--delay", type=float, default=0.35,
                     help="average seconds between requests per host (token bucket rate); "
@@ -1293,6 +1299,37 @@ def main():
         # golden + outside window: the top of the loop sleeps until the next window opens
 
 
+def load_seed_ids(path, max_n):
+    """Recent universe IDs from a CSV feed (watchlist / results history) so
+    near-misses get fresh stats every pass until they graduate or cool.
+    Missing/unreadable files yield nothing (never break a pass)."""
+    try:
+        fh = open(path, encoding="utf-8-sig", newline="")
+    except OSError:
+        return []
+    ids = []
+    try:
+        with fh:
+            for rec in csv.DictReader(fh):
+                try:
+                    uid = int((rec.get("universe_id") or "").strip())
+                except (ValueError, AttributeError):
+                    continue
+                if uid:
+                    ids.append(uid)
+    except (csv.Error, UnicodeDecodeError):
+        return ids[-max_n:] if max_n else ids
+    ids = list(dict.fromkeys(ids))   # dedupe, oldest first
+    return ids[-max_n:] if max_n and len(ids) > max_n else ids
+
+
+def is_permanent_skip(uid):
+    """A never-expiring ledger entry (CRM rejection). Only these survive
+    seed-file re-checks -- everything else gets fresh stats every pass."""
+    ts = _SEEN.get(str(uid))
+    return bool(ts) and ts.startswith("9999")
+
+
 def run(client, keywords, args, first_pass=True):
     t0 = time.time()
     run.calls_before = client.calls
@@ -1310,6 +1347,15 @@ def run(client, keywords, args, first_pass=True):
     for s in args.seeds:
         try: found[int(s)] = "seed"
         except ValueError: pass
+    for path in getattr(args, "seed_file", []) or []:
+        ids = load_seed_ids(path, args.seed_max)
+        n = 0
+        for uid in ids:
+            if uid not in found and not is_permanent_skip(uid):
+                found[uid] = f"seedfile:{os.path.basename(path)}"
+                n += 1
+        if ids:
+            say(f"   reseeds from {os.path.basename(path)}: {n} queued ({len(ids)} recent)")
     workers = max(1, args.workers)
 
     def absorb(new_ids):
