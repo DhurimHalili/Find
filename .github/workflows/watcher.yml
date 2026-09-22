@@ -59,6 +59,11 @@ jobs:
           retention-days: 7
 
       - name: Commit results back
+        # A pass's findings must never be lost to a mid-run push race (user PC
+        # pushes land at any time). Rebase is banned here: it conflicts on
+        # append-only data files and strands runners on detached HEAD. Instead:
+        # plain push, else union-merge origin's data into ours and land on the
+        # fresh tip. ci_merge.py guarantees nothing from either side is dropped.
         if: always()  # even a crashed pass may have produced partial rows
         run: |
           git config user.name "watcher-bot"
@@ -69,8 +74,15 @@ jobs:
           echo "--- staged changes ---"
           git status --short
           git diff --cached --quiet && echo "RESULT: nothing new, skipping commit" && exit 0
-          git commit -m "watcher pass $(date -u +%Y-%m-%d_%H:%M_UTC)"
-          git pull --rebase --autostash || true
-          echo "--- pushing ---"
-          git push
-          echo "RESULT: pushed"
+          TS=$(date -u +%Y-%m-%d_%H:%M_UTC)
+          git commit -m "watcher pass $TS"
+          for i in 1 2 3; do
+            if git push; then echo "RESULT: pushed"; exit 0; fi
+            echo "push raced (attempt $i); union-merging with origin and retrying"
+            git fetch origin
+            git reset --soft origin/main
+            git reset -q
+            python ci_merge.py origin/main
+            git commit -m "watcher pass $TS (merged)" || true
+          done
+          echo "RESULT: push FAILED after retries"; exit 1
