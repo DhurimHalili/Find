@@ -111,6 +111,9 @@ EXCL_FOREIGN_SCRIPT_RE = re.compile(
 EXCL_FOREIGN_WORDS_RE = re.compile(
     r"\b(espa\u00f1ol|espanol|espanhol|portugues|portugu\u00eas|fran\u00e7ais|deutsch|"
     r"juego|juegos|jogos|simulador|oyun)\b", re.I)
+# Owner's call: mount games are never acquisition targets. Title-only on
+# purpose ("mount up your dragon" in a description must not kill a good game).
+EXCL_MOUNT_RE = re.compile(r"\bmount\b", re.I)
 
 
 def is_excluded(title, description=""):
@@ -120,6 +123,8 @@ def is_excluded(title, description=""):
         return "modded"
     if EXCL_NSFW_RE.search(t):
         return "nsfw"
+    if EXCL_MOUNT_RE.search(t):
+        return "mount"
     if EXCL_REUPLOAD_RE.search(t):
         return "reuploaded"
     if EXCL_FOREIGN_SCRIPT_RE.search(t) or EXCL_FOREIGN_WORDS_RE.search(t):
