@@ -41,12 +41,22 @@ jobs:
           ROBLOSECURITY: ${{ secrets.ROBLOSECURITY }}
         run: |
           python roblox_finder.py --no-golden --keyword-mode full --search-pages 3 \
-            --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv \
+            --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --delay 0.25 --csv \
             --watchlist-file watchlist_history.csv \
             --nodiscord-file nodiscord_history.csv \
             --seed-file watchlist_history.csv --seed-file results_history.csv \
             >> results_history.csv 2>> finder.log
           tail -8 finder.log || true
+
+      - name: Upload full pass log
+        # finder.log holds the complete pass output incl. any [429]/[retry]/
+        # [500] throttling lines (the Actions log only shows the tail above).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finder-log
+          path: finder.log
+          retention-days: 7
 
       - name: Commit results back
         if: always()  # even a crashed pass may have produced partial rows

@@ -481,18 +481,255 @@ COMBO_NOUNS = [
 COMBO_SUFFIXES = ["simulator", "tycoon", "rng", "obby", "battlegrounds", "tower defense", "clicker",
                   "incremental", "rp", "story", "legacy", "online", "legends", "game"]
 
+# =============================================================================
+# EXPANSION WAVE -- high-signal clone bait, hot formats, title tags & nouns.
+# Same bar as the base lists (tiers + exclusions clean everything); these only
+# widen the top of the funnel. Ordered signal-first, combos last.
+# =============================================================================
+KW_TRENDING_X = [
+    "tung tung tung sahur", "tralalero tralala", "bombardiro crocodilo",
+    "lirili larila", "cappuccino assassino", "chimpanzini bananini",
+    "trippi troppi", "la vaca saturno", "los tralaleritos",
+    "steal brainrot", "brainrot stealer", "brainrot tycoon", "brainrot simulator",
+    "brainrot rng", "brainrot tower defense", "brainrot battlegrounds", "brainrot obby",
+    "brainrot clicker", "brainrot merge", "brainrot hunter", "collect brainrots",
+    "merge brainrots", "find the brainrots", "escape the brainrot", "brainrot boss",
+    "brainrot shop", "brainrot trading", "trade brainrots",
+    "grow garden", "garden simulator", "garden tycoon", "garden rng", "plant simulator",
+    "plant tycoon", "grow a plant", "grow plants", "grow a tree", "grow a flower",
+    "seed shop", "sell plants", "candy garden", "grow a zoo",
+    "eat the world", "eat to grow", "eat simulator", "eat players", "devour",
+    "escape school", "escape daycare", "escape hospital", "escape mall", "escape airport",
+    "escape hotel", "escape carnival", "escape lava", "escape flood", "escape volcano",
+    "escape area 51", "escape lab", "escape sewer", "escape basement",
+    "run from", "chase simulator", "tag simulator", "tornado survival", "meteor survival",
+    "lava run", "shark run", "murder run",
+    "tap simulator", "afk grind", "auto click", "idle tycoon", "idle miner",
+    "idle restaurant", "click to win",
+    "hatch a pet", "hatch eggs", "egg simulator", "open eggs", "dice simulator",
+    "roll for pets", "pet catcher", "pet collector", "pet rescue", "pet race",
+    "pet battle", "pet fight", "pet merge", "golden pet", "huge pet", "shiny pets",
+    "rainbow pets",
+    "obby parkour", "obby race", "obby tycoon", "tower obby",
+    "1000 stages", "500 stages", "100 stages", "stage obby", "checkpoint obby",
+    "lava obby", "candy obby", "rainbow obby", "reach the top", "only up",
+    "rage obby", "no jumping", "speed obby",
+    "toilet tycoon", "gas station tycoon", "car wash tycoon", "laundromat tycoon",
+    "gym tycoon", "music tycoon", "pet shop tycoon", "toy tycoon", "museum tycoon",
+    "bank tycoon", "island tycoon", "volcano tycoon", "space tycoon", "moon tycoon",
+    "underwater tycoon", "pirate tycoon", "ninja tycoon", "samurai tycoon",
+    "wizard tycoon", "dragon tycoon", "dino tycoon", "slime tycoon", "ghost tycoon",
+    "superhero tycoon", "villain tycoon", "spy tycoon", "oil tycoon", "gold tycoon",
+    "diamond tycoon", "candy tycoon", "donut tycoon", "sushi tycoon", "taco tycoon",
+    "car factory tycoon", "robot factory tycoon", "clone tycoon", "army tycoon",
+    "castle tycoon", "kingdom tycoon", "empire tycoon",
+    "sword fighting", "sword simulator", "katana simulator", "blade simulator",
+    "boxing simulator", "wrestling simulator", "karate simulator", "ninja simulator",
+    "knight simulator", "gladiator simulator", "arena simulator", "1v1 simulator",
+    "duel simulator", "fight simulator", "battle simulator", "war simulator",
+    "stickman battlegrounds", "block battlegrounds", "noob battlegrounds",
+    "roll simulator", "spin simulator", "gacha simulator", "luck simulator",
+    "aura simulator", "roll for auras", "wheel simulator", "case opening",
+    "case simulator", "unbox simulator", "mystery box simulator",
+    "scary obby", "horror obby", "horror simulator", "haunted house", "haunted school",
+    "analog horror", "liminal horror", "poolrooms", "level 0",
+    "piggy chapter", "granny escape", "fnaf clone", "night shift simulator",
+    "night guard simulator", "midnight horror", "scary elevator", "horror elevator",
+    "killer simulator", "survivor simulator",
+    "soccer simulator", "football simulator", "basketball simulator",
+    "volleyball simulator", "boxing league", "race simulator", "parkour simulator",
+    "skate simulator", "bike simulator", "drift simulator", "drag race", "street race",
+    "boat race", "climb race",
+    "brookhaven clone", "family simulator", "baby simulator", "daycare simulator",
+    "high school simulator", "teacher simulator", "doctor simulator", "dentist simulator",
+    "vet simulator", "cashier simulator", "delivery simulator", "taxi simulator",
+    "truck simulator", "pilot simulator", "farmer simulator", "miner simulator",
+    "lumberjack simulator", "chef simulator", "baker simulator", "barista simulator",
+    "pizza delivery simulator", "burger simulator",
+    "donate simulator", "money simulator", "cash simulator", "bank simulator",
+    "billionaire simulator", "trillionaire simulator", "rich simulator",
+    "squid game simulator", "red light green light clone", "who is the murderer",
+    "impostor simulator", "sus simulator", "stumble simulator", "party simulator",
+    "talent show simulator", "runway simulator",
+    "zombie defense", "castle defense", "tower battles", "defense simulator",
+    "dti clone", "fashion simulator", "makeup simulator",
+    "blade ball clone", "parry simulator", "rivals clone", "fps clone",
+    "blue lock clone", "soccer anime", "train simulator", "train survival",
+    "99 nights clone", "forest survival", "fisch clone", "best fishing game",
+    "fishing tycoon", "aquarium simulator", "ocean simulator",
+    "forsaken clone", "slasher simulator", "c00lkidd", "guest 666", "two time",
+    "disco bee", "queen bee garden", "red fox garden", "mimic octopus",
+    "candy blossom simulator", "moon mango simulator",
+    "zoonomaly", "zoochosis", "indigo park", "mascot horror",
+    "hello neighbor clone", "poppy playtime clone", "rainbow friends clone",
+    "baldi clone", "granny clone", "doors clone", "mimic clone", "piggy clone",
+]
+
+KW_TITLE_TAGS_X = [
+    "[UPD 2]", "[UPD 3]", "[SEASON 2]", "[CHAPTER 2]", "[PART 2]", "[ACT 2]",
+    "[DOUBLE XP]", "[DOUBLE LUCK]", "[X2 LUCK]", "[X3 LUCK]", "[FREE GAMEPASS]",
+    "[FREE VIP]", "[FREE PET]", "[FREE LEGENDARY]", "[FREE MYTHIC]", "[SECRET]",
+    "[MYTHIC]", "[LEGENDARY]", "[SHINY]", "[GOLDEN]", "[RAINBOW]", "[VOID]",
+    "[CELESTIAL]", "[DIVINE]", "[PRISMATIC]", "[FROZEN]", "[NEON]", "[GALAXY]",
+    "[COSMIC]", "[SHADOW]", "[BLOOD]", "[TOXIC]", "[CRYSTAL]", "[DIAMOND]",
+    "[BOSS]", "[RAID]", "[DUNGEON]", "[PVP]", "[CO-OP]", "[SOLO]", "[DUO]",
+    "[SQUAD]", "[CLAN]", "[GUILD]", "[TRADING]", "[AFK]", "[IDLE]", "[AUTO]",
+    "[NOOB TO PRO]", "[NOOB VS PRO]", "[1 TO 100]", "[100 DAYS]", "[HARDCORE]",
+    "[HARD MODE]", "[INSANE MODE]", "[NIGHTMARE]", "[ENDLESS]", "[INFINITE]",
+    "[1V1]", "[2V2]", "[BATTLE ROYALE]", "[LUCKY BLOCK]", "[ONE BLOCK]",
+    "[SKYBLOCK]", "[TOWER DEFENSE]", "[OBBY]", "[TYCOON]", "[SIMULATOR]",
+    "secret", "mythic", "legendary", "shiny", "rainbow", "boss fight", "new boss",
+    "limited pet", "free legendary", "double xp", "double luck", "1v1", "hardcore",
+]
+
+KW_GENRES_X = [
+    "lawn mowing simulator", "pressure washing simulator", "window cleaning simulator",
+    "pool cleaning simulator", "car detailing simulator", "dog grooming simulator",
+    "babysitting simulator", "lemonade stand simulator", "food truck simulator",
+    "coffee shop simulator", "sneaker store simulator", "barber shop simulator",
+    "tattoo shop simulator", "dojo simulator", "arcade simulator", "bowling alley simulator",
+    "laser tag simulator", "paintball simulator", "archery simulator", "kayak simulator",
+    "jet ski simulator", "yacht simulator", "cruise ship simulator", "oil rig simulator",
+    "space station simulator", "mars colony simulator", "underwater base simulator",
+    "bunker simulator", "doomsday bunker simulator", "courtroom simulator",
+    "lawyer simulator", "judge simulator", "court simulator", "detective agency simulator",
+    "ghost hunter simulator", "ufo hunting simulator", "cryptid hunting simulator",
+    "storm chasing simulator", "volcano explorer simulator", "cave explorer simulator",
+    "deep sea explorer simulator", "safari simulator", "photo safari simulator",
+    "bird watching simulator", "fishing tournament simulator", "ice fishing simulator",
+    "pearl diving simulator", "treasure diving simulator", "lighthouse keeper simulator",
+    "survivors clone", "deck builder simulator", "auto battler simulator",
+    "chess simulator", "wordle clone simulator", "word game simulator",
+    "type racer simulator", "piano simulator", "guitar simulator", "drum simulator",
+    "dj simulator", "concert simulator", "music studio simulator", "record label simulator",
+    "movie studio simulator", "actor simulator", "streaming simulator",
+    "podcast simulator", "auction simulator", "flea market simulator",
+    "garage simulator", "mechanic simulator", "house flipper simulator",
+    "interior design simulator", "construction simulator", "demolition simulator",
+    "bulldozer simulator", "excavator simulator", "crane simulator", "forklift simulator",
+    "tractor simulator",
+]
+
+KW_MECHANICS_X = [
+    "ascension simulator", "enchant simulator", "alchemy simulator", "potion simulator",
+    "potion brewer simulator", "wand simulator", "dragon tamer simulator",
+    "pet tamer simulator", "beast tamer simulator", "monster tamer simulator",
+    "fossil simulator", "cloning simulator", "time travel simulator", "time machine simulator",
+    "portal simulator", "multiverse simulator", "offline earnings simulator",
+    "idle earnings simulator", "auto farm simulator", "auto hatch simulator",
+    "combo simulator", "damage simulator", "sniper simulator", "assassin simulator",
+    "thief simulator", "lockpicking simulator", "safe cracking simulator",
+    "jewel heist simulator", "museum heist simulator", "casino heist simulator",
+    "bounty hunter simulator", "hitman simulator", "bodyguard simulator",
+    "last to leave simulator", "dont move simulator", "try not to laugh simulator",
+    "impossible quiz simulator", "quiz simulator", "spelling bee simulator",
+    "riddle simulator", "mystery mansion simulator", "haunted mansion simulator",
+    "abandoned mall simulator", "liminal mall simulator", "dreamcore simulator",
+    "nostalgia simulator", "retro simulator", "arm wrestling simulator",
+    "pushup simulator", "muscle simulator", "workout simulator", "gym simulator",
+    "eat simulator", "sleep simulator", "dream simulator", "toilet simulator",
+    "1v1 simulator", "sword simulator", "axe simulator", "kung fu simulator",
+]
+
+KW_THEMES_X = [
+    "ohio simulator", "ohio boss simulator", "rizz simulator", "rizz up simulator",
+    "gyatt simulator", "skibidi defense simulator", "skibidi invasion simulator",
+    "titan cameraman simulator", "titan speakerman simulator", "titan tv man simulator",
+    "astro toilet simulator", "gman toilet simulator", "sigma simulator", "sigma boss simulator",
+    "alpha simulator", "mewing simulator", "mewing streak simulator", "aura farming simulator",
+    "aura simulator", "kissy missy simulator", "mommy long legs simulator",
+    "jumbo josh simulator", "rainbow friends chapter simulator", "blue rainbow friend simulator",
+    "seek doors simulator", "figure doors simulator", "rush doors simulator",
+    "piggy book simulator", "zizzy piggy simulator", "glamrock freddy simulator",
+    "monty gator simulator", "circus baby simulator", "purple guy simulator",
+    "glitchtrap simulator", "granny horror simulator", "slendrina simulator",
+    "playtime baldi simulator", "siren head horror simulator", "cartoon dog simulator",
+    "shrek swamp simulator", "shrek horror simulator", "shrek obby simulator",
+    "spongebob horror simulator", "spongebob simulator", "krusty krab simulator",
+    "peppa pig horror simulator", "peppa pig simulator", "grimace shake simulator",
+    "grimace horror simulator", "mrbeast challenge simulator", "feastables simulator",
+    "sprunki horror simulator", "sprunki simulator", "wenda sprunki simulator",
+    "fnf simulator", "whitty fnf simulator", "tricky fnf simulator",
+    "impostor horror simulator", "impostor simulator", "crewmate simulator",
+    "bendy horror simulator", "cuphead boss simulator",
+    "dti clone", "dress to impress clone", "modeling simulator",
+    "blade ball clone", "parry simulator", "rivals clone",
+    "dead rails clone", "99 nights clone", "cultist raid simulator",
+    "fishing update simulator", "slasher simulator", "chance forsaken simulator",
+]
+
+KW_ANIME_X = [
+    "anime infinite", "infinite anime", "anime tower", "anime siege", "anime war",
+    "anime war tycoon", "anime empire", "anime kingdom", "anime capital",
+    "anime story", "anime tales", "anime odyssey", "anime journey", "anime quest",
+    "anime heroes", "anime legends", "anime spirits", "anime blades", "anime brawl",
+    "anime arena", "anime clash", "anime strike",
+    "gachiakuta", "dragon ball daima", "daima simulator", "one piece elbaf",
+    "demon slayer infinity castle", "bleach tybw", "jjk interactions simulator",
+    "type soul clone", "sparking zero simulator",
+]
+
+KW_BROAD_X = [
+    "of the", "in the", "to the", "and the", "for the", "on the", "from the",
+    "with the", "without the", "into the", "over the", "under the",
+    "the best", "best ever", "brand new", "just released", "official game",
+    "part one", "part two", "episode 1", "season 1", "chapter 1", "level 1",
+    "world 1", "day one",
+]
+
+COMBO_PREFIXES_X = [
+    "steal the", "collect the", "unlock the", "upgrade the", "merge the",
+    "catch the", "defeat the", "race the", "chase the", "guard the",
+    "build the", "grow the", "raise the", "train the", "tame the",
+    "adopt the", "feed the", "conquer the", "rule the", "own the",
+    "buy the", "trade the", "clean the", "fix the", "drive the",
+]
+
+COMBO_NOUNS_X = [
+    "penguin", "panda", "fox", "wolf", "bear", "tiger", "lion", "elephant",
+    "monkey", "giraffe", "zebra", "crocodile", "snake", "spider", "crab",
+    "octopus", "whale", "dolphin", "owl", "eagle", "parrot", "chicken",
+    "duck", "pig", "cow", "sheep", "goat", "horse", "donkey", "llama",
+    "camel", "kangaroo", "koala", "sloth", "raccoon", "squirrel", "hamster",
+    "frog", "turtle", "unicorn", "phoenix", "mermaid", "fairy", "goblin",
+    "orc", "troll", "dwarf", "elf", "vampire", "mummy", "skeleton", "pirate",
+    "ninja", "samurai", "knight", "viking", "wizard", "clown", "astronaut",
+    "cowboy", "chef", "doctor", "teacher", "student", "baby", "grandma",
+    "king", "queen", "prince", "princess", "santa",
+    "pumpkin", "mushroom", "cactus", "sunflower", "carrot", "apple", "banana",
+    "watermelon", "strawberry", "pineapple", "coconut", "donut", "pizza",
+    "burger", "taco", "sushi", "cake", "cookie", "candy", "chocolate", "popcorn",
+    "train", "submarine", "rocket", "ufo", "helicopter", "bike", "skateboard",
+    "volcano", "cave", "mine", "lighthouse", "igloo", "cabin", "treehouse",
+    "mall", "airport", "harbor", "park", "zoo", "circus", "museum", "bank",
+    "jail", "flower", "rose",
+]
+
+COMBO_SUFFIXES_X = [
+    "adventure", "journey", "quest", "tales", "odyssey", "empire", "kingdom",
+    "life", "challenge", "race", "arena", "defense", "escape", "party",
+]
+
 
 def build_keywords(mode):
     if mode == "fast":
-        kws = KW_TRENDING_HITS + KW_TITLE_TAGS + KW_GENRES[:80]
+        kws = (KW_TRENDING_HITS + KW_TRENDING_X + KW_TITLE_TAGS + KW_TITLE_TAGS_X
+               + KW_GENRES[:80] + KW_GENRES_X[:40])
     elif mode == "full":
-        kws = (KW_TRENDING_HITS + KW_TITLE_TAGS + KW_GENRES + KW_MECHANICS + KW_THEMES_MEMES
-               + KW_ANIME_IP + KW_BROAD)
+        kws = (KW_TRENDING_HITS + KW_TRENDING_X + KW_TITLE_TAGS + KW_TITLE_TAGS_X
+               + KW_GENRES + KW_GENRES_X + KW_MECHANICS + KW_MECHANICS_X
+               + KW_THEMES_MEMES + KW_THEMES_X + KW_ANIME_IP + KW_ANIME_X
+               + KW_BROAD + KW_BROAD_X)
     else:  # max
-        kws = (KW_TRENDING_HITS + KW_TITLE_TAGS + KW_GENRES + KW_MECHANICS + KW_THEMES_MEMES
-               + KW_ANIME_IP + KW_BROAD)
-        kws += [f"{p} {n}" for p in COMBO_PREFIXES for n in COMBO_NOUNS]
-        kws += [f"{n} {s}" for n in COMBO_NOUNS for s in COMBO_SUFFIXES]
+        kws = (KW_TRENDING_HITS + KW_TRENDING_X + KW_TITLE_TAGS + KW_TITLE_TAGS_X
+               + KW_GENRES + KW_GENRES_X + KW_MECHANICS + KW_MECHANICS_X
+               + KW_THEMES_MEMES + KW_THEMES_X + KW_ANIME_IP + KW_ANIME_X
+               + KW_BROAD + KW_BROAD_X)
+        prefixes = COMBO_PREFIXES + COMBO_PREFIXES_X
+        nouns = COMBO_NOUNS + COMBO_NOUNS_X
+        suffixes = COMBO_SUFFIXES + COMBO_SUFFIXES_X
+        kws += [f"{p} {n}" for p in prefixes for n in nouns]
+        kws += [f"{n} {s}" for n in nouns for s in suffixes]
     return list(dict.fromkeys(k.strip() for k in kws if k.strip()))
 
 # =============================================================================
@@ -1179,7 +1416,7 @@ def main():
 
     ap = argparse.ArgumentParser(description="Find under-the-radar high-concurrency Roblox games.")
     ap.add_argument("--keyword-mode", choices=["fast", "full", "max"], default="full",
-                    help="keyword universe size: fast (~500) | full (~1300) | max (~2000+ combos). "
+                    help="keyword universe size: fast (~900) | full (~1900) | max (~15000 combos). "
                          "Per-pass cost is capped by --keyword-limit regardless of mode")
     ap.add_argument("--extra-keywords", nargs="*", default=[], help="keywords to add")
     ap.add_argument("--search-pages", type=int, default=5)
