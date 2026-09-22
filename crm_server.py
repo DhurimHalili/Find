@@ -572,6 +572,10 @@ def api_status(body):
                 {"ts": utc_now(), "from": old, "to": status})
             if status == "contacted" and not g.get("contacted_at"):
                 g["contacted_at"] = utc_now()
+            elif status == "new":
+                # reset to untouched: a misclick-undo (or a fresh approach)
+                # leaves no stale "contacted ..." trace behind
+                g["contacted_at"] = None
             if status == "rejected":
                 mark_permanent_skip(uid)
                 log_act("status", f"'{g.get('title', uid)}' REJECTED -- permanently excluded from scanning")
