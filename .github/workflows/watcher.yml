@@ -42,7 +42,8 @@ jobs:
         run: |
           python roblox_finder.py --no-golden --keyword-mode full --search-pages 3 \
             --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv \
-            --watchlist-file watchlist_history.csv >> results_history.csv 2>> finder.log
+            --watchlist-file watchlist_history.csv \
+            --nodiscord-file nodiscord_history.csv >> results_history.csv 2>> finder.log
           tail -8 finder.log || true
 
       - name: Commit results back
@@ -50,7 +51,7 @@ jobs:
         run: |
           git config user.name "watcher-bot"
           git config user.email "watcher-bot@users.noreply.github.com"
-          for f in results_history.csv watchlist_history.csv seen_ledger.json keyword_cursor.json; do
+          for f in results_history.csv watchlist_history.csv nodiscord_history.csv seen_ledger.json keyword_cursor.json; do
             [ -f "$f" ] && git add "$f"
           done
           echo "--- staged changes ---"

@@ -14,4 +14,4 @@ rem the assistant so local + cloud can be merged again.
 set /p LOCALRUN="Cloud watcher is primary. Run a LOCAL pass anyway? (y/N) "
 if /i not "%LOCALRUN%"=="y" exit /b 0
 cd /d "C:\Users\Gaming pc\Desktop\robloxfind"
-python roblox_finder.py --loop 90 --keyword-mode full --search-pages 3 --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv --watchlist-file watchlist_history.csv >> results_history.csv 2>> finder.log
+python roblox_finder.py --loop 90 --keyword-mode full --search-pages 3 --sort-pages 20 --keyword-limit 500 --snowball-hops 3 --csv --watchlist-file watchlist_history.csv --nodiscord-file nodiscord_history.csv >> results_history.csv 2>> finder.log

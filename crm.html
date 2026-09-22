@@ -175,6 +175,7 @@
       <button data-v="dashboard"><span class="ic">◈</span>Dashboard</button>
       <button data-v="pipeline"><span class="ic">▤</span>Pipeline<span class="n" id="navPipeline">0</span></button>
       <button data-v="radar"><span class="ic">◎</span>Early radar<span class="n" id="navRadar">0</span></button>
+      <button data-v="nodiscord"><span class="ic">○</span>No Discord<span class="n" id="navNoDiscord">0</span></button>
       <button data-v="deleted"><span class="ic">⌫</span>Deleted<span class="n" id="navDeleted">0</span></button>
       <button data-v="activity"><span class="ic">≡</span>Activity</button>
       <button data-v="settings"><span class="ic">⚙</span>Settings &amp; Tools</button>
@@ -294,6 +295,7 @@ async function refresh(){
   S = await api("/api/state");
   $("#navPipeline").textContent = S.games.filter(g => (g.status||"new") !== "rejected").length;
   $("#navRadar").textContent = (S.radar || []).length;
+  $("#navNoDiscord").textContent = (S.nodiscord || []).length;
   $("#navDeleted").textContent = S.deleted.length;
   $("#footCounts").textContent = `${S.games.length} games · ${S.games.filter(g=>g.has_discord==="YES").length} live discords`;
   renderRuntime();
@@ -343,6 +345,7 @@ const TITLES = {
   dashboard:["Dashboard","Pipeline health at a glance"],
   pipeline:["Pipeline","Every qualified game — click a row for full details"],
   radar:["Early radar","Near-misses (50+ CCU) — risers graduate to the pipeline automatically"],
+  nodiscord:["No Discord","Qualified games with zero online presence — no Discord, no socials, owner silent"],
   deleted:["Deleted","Hidden games — they can return after the cooldown"],
   activity:["Activity","Everything that happened, newest first"],
   settings:["Settings & Tools","Tune the system, add games by hand, export data"]};
@@ -356,7 +359,7 @@ function setView(v){
 }
 function render(){
   if(!S){ $("#view").innerHTML = `<div class="empty">loading…</div>`; return; }
-  ({dashboard:renderDashboard, pipeline:renderPipeline, radar:renderRadar, deleted:renderDeleted,
+  ({dashboard:renderDashboard, pipeline:renderPipeline, radar:renderRadar, nodiscord:renderNoDiscord, deleted:renderDeleted,
     activity:renderActivity, settings:renderSettings})[VIEW]();
 }
 
@@ -486,7 +489,7 @@ function renderPipeline(){
     const ids = rows.map(g => +g.universe_id).filter(Boolean);
     if(!ids.length) return toast("Nothing shown to delete", "err");
     confirmModal(`Delete ${ids.length} game${ids.length > 1 ? "s" : ""}?`,
-      `Every game in this filtered view leaves the pipeline and can only come back after ${S.settings.cooldown_days} days. Rejected games are permanent and stay untouched.`,
+      `Every game in this filtered view leaves the pipeline and can only come back after ${S.settings.cooldown_days} days. Rejected games are permanent and stay untouched. For permanent removal of the rest, set their status to Rejected instead of deleting.`,
       `Delete ${ids.length}`, async () => {
         const r = await api("/api/delete_all", {universe_ids: ids});
         r.error ? toast(r.error, "err") : toast(`Deleted ${r.deleted ?? 0} games`, "ok");
@@ -583,6 +586,7 @@ function renderRadar(){
         <td style="white-space:nowrap">
           <button class="btn sm pri" data-track="${esc(e.game_url)}" title="Full enrichment + add to pipeline">＋ Track</button>
           <button class="iconbtn" data-openurl="${esc(e.game_url)}" title="Open in Roblox">↗</button>
+          <button class="iconbtn del" data-radreject="${e.universe_id}" title="Reject permanently (never scanned or shown again)">✕</button>
         </td></tr>`).join("")}</tbody></table>`
     : ((S.radar || []).length
         ? `<div class="empty">No radar games match these filters — loosen them.</div>`
@@ -618,6 +622,71 @@ function renderRadar(){
   };
   document.querySelectorAll("[data-openurl]").forEach(b => b.onclick = e => {
     e.stopPropagation(); window.open(b.dataset.openurl, "_blank");
+  });
+  document.querySelectorAll("[data-radreject]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const uid = b.dataset.radreject;
+    const entry = (S.radar || []).find(x => String(x.universe_id) === String(uid))
+               || (S.nodiscord || []).find(x => String(x.universe_id) === String(uid));
+    confirmModal("Reject permanently?",
+      `"${entry?.title || uid}" leaves its list and will never be scanned or imported again.`,
+      "Reject", async () => {
+        const r = await api("/api/radar_reject", {universe_id: +uid});
+        r.error ? toast(r.error, "err") : toast("Rejected permanently", "ok");
+        refresh();
+      });
+  });
+}
+
+/* ---------- no discord ---------- */
+function renderNoDiscord(){
+  const N = [...(S.nodiscord || [])].sort((a,b) => (b.active || 0) - (a.active || 0));
+  $("#view").innerHTML = `
+  <div class="filters">
+    <span style="color:var(--mut);font-size:13px">These games hit a tier on numbers but have
+    <b>no Discord, no socials, and a silent owner</b> — nothing to contact... yet.
+    Check back: if a community appears, the watcher imports them automatically.
+    <b>Track</b> pulls one in anyway with full enrichment.</span>
+    <div class="spacer"></div>
+    <span class="tag">${N.length} tracked</span>
+  </div>
+  ${N.length ? `<table><thead><tr><th>Score</th><th>Tier</th><th>Game</th><th>CCU</th>
+    <th>Visits</th><th>Age</th><th>Seen</th><th>Last seen</th><th></th></tr></thead><tbody>
+    ${N.map(e => `
+      <tr data-uid="${e.universe_id}" style="cursor:default">
+        <td class="num" style="color:var(--acc2)">—</td>
+        <td>${tierBadge(e.tier)}</td>
+        <td><div class="title" title="${esc(e.title)}">${esc(e.title)}</div>
+            <div class="under">${esc(e.creator || "—")} · universe ${e.universe_id}</div></td>
+        <td class="num">${fmt(e.active)}</td>
+        <td class="num">${fmt(e.visits)}</td>
+        <td class="num">${e.age_days === "" || e.age_days === undefined ? "—" : e.age_days + "d"}</td>
+        <td class="num">${e.sightings || 1}×</td>
+        <td class="under">${rel(e.last_seen ? (e.last_seen.length === 16 ? e.last_seen.replace(" ","T") + "Z" : e.last_seen) : null)}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm pri" data-track="${esc(e.game_url)}" title="Full enrichment + add to pipeline">＋ Track</button>
+          <button class="iconbtn" data-openurl="${esc(e.game_url)}" title="Open in Roblox">↗</button>
+          <button class="iconbtn del" data-radreject="${e.universe_id}" title="Reject permanently (never scanned or shown again)">✕</button>
+        </td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">Nothing here — every qualified game currently has some online presence. The tab fills when the watcher finds tier-hits with zero socials.</div>`}`;
+  document.querySelectorAll("[data-track]").forEach(b => b.onclick = async e => {
+    e.stopPropagation(); await doAdd(b.dataset.track);
+  });
+  document.querySelectorAll("[data-openurl]").forEach(b => b.onclick = e => {
+    e.stopPropagation(); window.open(b.dataset.openurl, "_blank");
+  });
+  document.querySelectorAll("[data-radreject]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const uid = b.dataset.radreject;
+    const entry = (S.radar || []).find(x => String(x.universe_id) === String(uid))
+               || (S.nodiscord || []).find(x => String(x.universe_id) === String(uid));
+    confirmModal("Reject permanently?",
+      `"${entry?.title || uid}" leaves its list and will never be scanned or imported again.`,
+      "Reject", async () => {
+        const r = await api("/api/radar_reject", {universe_id: +uid});
+        r.error ? toast(r.error, "err") : toast("Rejected permanently", "ok");
+        refresh();
+      });
   });
 }
 
@@ -700,6 +769,8 @@ function renderSettings(){
       <div class="under" style="font-size:11.5px;color:var(--mut2);margin-top:8px">
         Rejected games are never searched, never re-imported, and hidden from the Pipeline.
         Un-reject returns them to the pipeline as New.</div>
+      <h4 style="margin-top:14px;font-size:11px;color:var(--mut)">Radar rejects</h4>
+      <div class="mini" id="rejRadarList"></div>
     </div>
     <div class="panel"><h3>Data</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -733,6 +804,17 @@ function renderSettings(){
   list && list.querySelectorAll("[data-unreject]").forEach(b => b.onclick = async () => {
     const r = await api("/api/status", {universe_id: +b.dataset.unreject, status: "new"});
     r.error ? toast(r.error, "err") : toast("Un-rejected — back in the pipeline", "ok"); refresh();
+  });
+  const rrej = S.radar_rejected || [];
+  const rlist = $("#rejRadarList");
+  if(rlist) rlist.innerHTML = rrej.length ? rrej.map(([uid, d]) => `
+    <div class="row"><div class="t">${esc(d.title || uid)}</div>
+      <div class="m">universe ${uid}</div>
+      <button class="btn sm" data-radunreject="${uid}">↺ Un-reject</button></div>`).join("")
+    : `<div class="empty" style="padding:12px 0">No rejected radar games</div>`;
+  rlist && rlist.querySelectorAll("[data-radunreject]").forEach(b => b.onclick = async () => {
+    const r = await api("/api/radar_unreject", {universe_id: +b.dataset.radunreject});
+    r.error ? toast(r.error, "err") : toast("Un-rejected — eligible for scanning again", "ok"); refresh();
   });
 }
 
@@ -849,7 +931,7 @@ function openDrawer(uid){
     await refresh(); openDrawer(g.universe_id);
   };
   $("#dDelete").onclick = () => confirmModal("Delete this game?",
-    `"${g.title}" leaves the pipeline and can only come back after ${S.settings.cooldown_days} days.`,
+    `"${g.title}" leaves the pipeline and can only come back after ${S.settings.cooldown_days} days. For permanent removal, set its status to Rejected instead.`,
     "Delete", async () => {
       const r = await api("/api/delete", {universe_id: g.universe_id});
       r.error ? toast(r.error, "err") : toast("Deleted — moved to cooldown", "ok");
@@ -927,7 +1009,7 @@ document.body.addEventListener("click", async e => {
     }
     if(act.dataset.act === "del"){
       const g = gameById(uid);
-      confirmModal("Delete this game?", `"${g?.title}" leaves the pipeline and can only come back after ${S.settings.cooldown_days} days.`, "Delete",
+      confirmModal("Delete this game?", `"${g?.title}" leaves the pipeline and can only come back after ${S.settings.cooldown_days} days. For permanent removal, set its status to Rejected instead.`, "Delete",
         async () => { const r = await api("/api/delete", {universe_id: +uid});
           r.error ? toast(r.error, "err") : toast("Deleted", "ok"); refresh(); });
     }

@@ -76,6 +76,8 @@ def load_data():
     DATA.setdefault("games", {})
     DATA.setdefault("deleted", {})
     DATA.setdefault("radar", {})
+    DATA.setdefault("nodiscord", {})
+    DATA.setdefault("radar_rejected", {})
     DATA.setdefault("activity", [])
     DATA.setdefault("settings", {"cooldown_days": 7})
     DATA.setdefault("meta", {"created": utc_now(), "last_sync": None})
@@ -244,6 +246,8 @@ def parse_multiblock_csv(name):
         path = "results_history.csv"
     elif name == "curated_list.csv":
         path = "curated_list.csv"
+    elif name == "nodiscord_history.csv":
+        path = "nodiscord_history.csv"
     else:
         raise ValueError(f"file not allowlisted: {name}")
     try:
@@ -335,6 +339,8 @@ def do_radar_sync(now):
         uid = str(to_i(r.get("universe_id")))
         if uid == "0" or uid in DATA["games"]:
             continue
+        if uid in DATA.get("radar_rejected", {}):
+            continue   # permanently rejected: never scanned, never re-imported
         if uid in DATA["deleted"] and now < cooldown_end(DATA["deleted"][uid]["deleted_at"]):
             continue
         ts = r.get("checked_at_utc", "")
@@ -362,6 +368,60 @@ def do_radar_sync(now):
     return touched
 
 
+def do_nodiscord_sync(now):
+    """Fold the qualified-but-no-presence feed into DATA['nodiscord']: newest
+    row wins per universe. Same exclusions as the radar (pipeline, rejected,
+    cooldown, do-not-buy). Games that later gain a presence graduate via the
+    normal match feed; direct Track adds promote them immediately."""
+    try:
+        rows = parse_multiblock_csv("nodiscord_history.csv")
+    except (OSError, ValueError):
+        rows = []
+    best = {}
+    for r in rows:
+        uid = str(to_i(r.get("universe_id")))
+        if uid == "0":
+            continue
+        old = best.get(uid)
+        if not old or (r.get("checked_at_utc", "") > old.get("checked_at_utc", "")):
+            best[uid] = r
+    touched = 0
+    for uid, r in best.items():
+        if uid in DATA["games"]:
+            continue
+        if uid in DATA.get("radar_rejected", {}):
+            continue
+        if uid in DATA["deleted"] and now < cooldown_end(DATA["deleted"][uid]["deleted_at"]):
+            continue
+        if rf.is_excluded(r.get("title", ""), r.get("description", "")):
+            continue
+        ts = r.get("checked_at_utc", "")
+        e = DATA["nodiscord"].get(uid)
+        if e is None:
+            DATA["nodiscord"][uid] = {"universe_id": uid, "title": r.get("title", uid),
+                                      "game_url": r.get("game_url", ""),
+                                      "creator": r.get("creator_name", ""),
+                                      "tier": r.get("tier", ""),
+                                      "active": to_i(r.get("active")),
+                                      "visits": to_i(r.get("visits")),
+                                      "age_days": to_i(r.get("age_days")),
+                                      "sightings": 1,
+                                      "first_seen": ts, "last_seen": ts}
+            touched += 1
+        elif ts >= e.get("last_seen", ""):
+            e.update({"title": r.get("title", "") or e["title"],
+                      "game_url": r.get("game_url", "") or e["game_url"],
+                      "creator": r.get("creator_name", "") or e["creator"],
+                      "tier": r.get("tier", "") or e["tier"],
+                      "active": to_i(r.get("active")), "visits": to_i(r.get("visits")),
+                      "age_days": to_i(r.get("age_days")),
+                      "sightings": e.get("sightings", 1) + 1, "last_seen": ts})
+            touched += 1
+    for uid in [u for u in DATA["nodiscord"] if u in DATA["games"]]:
+        del DATA["nodiscord"][uid]
+    return touched
+
+
 def do_sync():
     with _lock:
         best, excluded = merge_source_rows()
@@ -378,6 +438,9 @@ def do_sync():
                 log_act("sync", f"'{title}' cooldown expired -- re-admitted to pipeline")
             if uid in DATA["games"] and DATA["games"][uid].get("status") == "rejected":
                 frozen += 1   # rejected games are frozen: sync never touches them again
+                continue
+            if uid in DATA.get("radar_rejected", {}):
+                frozen += 1   # radar-rejected: same promise, never imported either
                 continue
             crm_fields = {"status": "new", "notes": "", "added_at": utc_now(),
                           "contacted_at": None, "status_history": []}
@@ -416,13 +479,41 @@ def do_sync():
             row["tier"] = rf.classify(row.get("visits") or 0, row.get("active") or 0)
             DATA["games"][uid] = row
         radar_touched = do_radar_sync(now)
+        nodiscord_touched = do_nodiscord_sync(now)
+        # Self-heal: re-assert permanent skips for everything rejected, so a
+        # clobbered or older ledger (e.g. the cloud overwrote it before your
+        # push went up) can never resurrect a banished game at watcher level.
+        healed = 0
+        try:
+            with open("seen_ledger.json", encoding="utf-8") as f:
+                ledger = json.load(f)
+        except (OSError, ValueError):
+            ledger = {}
+        for u, g in DATA["games"].items():
+            if (g.get("status") or "new") == "rejected" and ledger.get(str(u)) != FOREVER:
+                ledger[str(u)] = FOREVER
+                healed += 1
+        for u in DATA.get("radar_rejected", {}):
+            if ledger.get(str(u)) != FOREVER:
+                ledger[str(u)] = FOREVER
+                healed += 1
+        if healed:
+            blob = json.dumps(ledger, ensure_ascii=False).encode("utf-8")
+            fd = os.open("seen_ledger.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+            try:
+                os.write(fd, blob)
+            finally:
+                os.close(fd)
+            log_act("sync", f"re-sealed {healed} permanent skip(s) in the scan ledger")
         DATA["meta"]["last_sync"] = utc_now()
         log_act("sync", f"sync done: +{imported} new, {updated} updated, {kept} kept fresh, "
                         f"{cooling} skipped (cooldown), {frozen} rejected-frozen, "
-                        f"{excluded} do-not-buy rows ignored, radar +{radar_touched}")
+                        f"{excluded} do-not-buy rows ignored, radar +{radar_touched}, "
+                        f"no-discord +{nodiscord_touched}")
         save_data()
         return {"imported": imported, "updated": updated, "cooling": cooling,
                 "frozen": frozen, "excluded": excluded, "radar": radar_touched,
+                "nodiscord": nodiscord_touched,
                 "kept": kept, "total": len(DATA["games"])}
 
 
@@ -453,6 +544,9 @@ def api_state():
             for uid, d in DATA["deleted"].items()],
             "radar": sorted(DATA.get("radar", {}).values(),
                             key=lambda e: (-(e.get("active") or 0), -(e.get("peak_active") or 0))),
+            "nodiscord": sorted(DATA.get("nodiscord", {}).values(),
+                                key=lambda e: (-(e.get("active") or 0), -(e.get("visits") or 0))),
+            "radar_rejected": sorted(DATA.get("radar_rejected", {}).items()),
             "settings": DATA["settings"], "activity": DATA["activity"][:200],
             "meta": DATA["meta"], "statuses": STATUSES,
             "runtime": {
@@ -551,6 +645,37 @@ def api_radar_clear(body):
         return {"ok": True, "cleared": n}
 
 
+def api_radar_reject(body):
+    """Permanently reject a radar OR no-discord game: leaves its list, can
+    never be re-scanned (FOREVER ledger entry) nor re-imported by sync."""
+    uid = str(to_i(body.get("universe_id")))
+    with _lock:
+        e = DATA.get("radar", {}).pop(uid, None)
+        if e is None:
+            e = DATA.get("nodiscord", {}).pop(uid, None)
+        if e is None:
+            return {"error": "not on the radar"}
+        DATA.setdefault("radar_rejected", {})[uid] = {
+            "title": e.get("title", uid), "rejected_at": utc_now(),
+            "row": e}
+        mark_permanent_skip(uid)
+        log_act("status", f"'{e.get('title', uid)}' REJECTED -- permanently excluded from scanning")
+        save_data()
+        return {"ok": True}
+
+
+def api_radar_unreject(body):
+    uid = str(to_i(body.get("universe_id")))
+    with _lock:
+        if uid not in DATA.get("radar_rejected", {}):
+            return {"error": "not rejected"}
+        title = DATA["radar_rejected"].pop(uid).get("title", uid)
+        clear_permanent_skip(uid)
+        log_act("status", f"radar '{title}' un-rejected -- eligible for scanning again")
+        save_data()
+        return {"ok": True}
+
+
 def api_restore(body):
     uid = str(to_i(body.get("universe_id")))
     if uid not in DATA["deleted"]:
@@ -623,6 +748,7 @@ def api_add(body):
                     "contacted_at": None, "status_history": [], "found_via": "manual"})
         DATA["games"][uid] = row
         DATA.get("radar", {}).pop(uid, None)   # promoted from Early Radar -> pipeline
+        DATA.get("nodiscord", {}).pop(uid, None)   # promoted from No Discord -> pipeline
         log_act("add", f"added manually: '{row.get('title')}' ({row.get('tier') or 'unranked'})")
         save_data()
         return {"ok": True, "universe_id": uid, "title": row.get("title"),
@@ -830,6 +956,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/delete": lambda: api_delete(body),
             "/api/delete_all": lambda: api_delete_all(body),
             "/api/radar_clear": lambda: api_radar_clear(body),
+            "/api/radar_reject": lambda: api_radar_reject(body),
+            "/api/radar_unreject": lambda: api_radar_unreject(body),
             "/api/restore": lambda: api_restore(body),
             "/api/purge": lambda: api_purge(body),
             "/api/purge_expired": lambda: api_purge_expired(),

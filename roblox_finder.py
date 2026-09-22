@@ -1223,6 +1223,9 @@ def main():
     ap.add_argument("--watchlist-file", default="",
                     help="append near-miss watchlist rows to this CSV file each pass "
                          "(feeds the CRM Early Radar view; e.g. watchlist_history.csv)")
+    ap.add_argument("--nodiscord-file", default="",
+                    help="append qualified-but-no-presence match rows to this CSV file "
+                         "each pass (feeds the CRM No Discord tab; e.g. nodiscord_history.csv)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -1548,6 +1551,9 @@ def run(client, keywords, args, first_pass=True):
     rows.sort(key=lambda r: (r["tier"], r["has_discord"] != "YES", -r["priority_score"]))
 
     # ---------------- social presence filter (keep only games with an online presence)
+    # Games that qualify on numbers but have zero presence are NOT thrown away:
+    # they go to the no-Discord feed (CRM "No Discord" tab) for manual review.
+    dropped_rows = []
     if not args.no_social_filter and not args.no_discord:
         kept, dropped = [], 0
         for r in rows:
@@ -1557,9 +1563,23 @@ def run(client, keywords, args, first_pass=True):
                 kept.append(r)
             else:
                 dropped += 1
+                dropped_rows.append(r)
         say(f"Social filter: kept {len(kept)}/{len(rows)} matches "
             f"(dropped {dropped} with no social presence at all)")
         rows = kept
+    if getattr(args, "nodiscord_file", None) and dropped_rows:
+        # Append-only feed of qualified-but-uncontactable games. Same schema as
+        # the match CSV; header written once (CRM parser tolerates repeats).
+        try:
+            need_header = (not os.path.exists(args.nodiscord_file)
+                           or os.path.getsize(args.nodiscord_file) == 0)
+            with open(args.nodiscord_file, "a", encoding="utf-8", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=list(dropped_rows[0].keys()))
+                if need_header:
+                    w.writeheader()
+                w.writerows(dropped_rows)
+        except OSError as e:
+            say(f"   [!] could not write no-discord file: {e}")
 
     # ---------------- watchlist (near misses: 50+ CCU, not yet in a tier --
     # tomorrow's matches; a rising game shows up here before it qualifies)
@@ -1607,7 +1627,8 @@ def run(client, keywords, args, first_pass=True):
     # ---------------- summary (stderr)
     pass_calls = client.calls - run.calls_before if hasattr(run, "calls_before") else client.calls
     say(f"\nDone in {(time.time() - t0) / 60:.1f} min, {pass_calls} API calls this pass, "
-        f"{len(details)} games checked, {len(rows)} matches, {len(watch)} on watchlist.\n")
+        f"{len(details)} games checked, {len(rows)} matches ({len(dropped_rows)} no-discord), "
+        f"{len(watch)} on watchlist.\n")
     counts = {}
     for r in rows:
         counts[r["tier"]] = counts.get(r["tier"], 0) + 1
