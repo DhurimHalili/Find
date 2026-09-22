@@ -19,6 +19,8 @@ import io
 import json
 import os
 import re
+import shutil
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -859,24 +861,117 @@ def api_refresh_status(body):
     return {"ok": True, **_refresh_snapshot()}
 
 
+DATA_FEED_FILES = ["results_history.csv", "watchlist_history.csv",
+                   "nodiscord_history.csv", "seen_ledger.json", "keyword_cursor.json"]
+
+
+def _union_data_text(fname, old_text, cur_text):
+    """Union-merge one data file (old = pre-pull local, cur = fresh tip).
+    Same semantics as ci_merge.py: CSVs dedupe by universe+timestamp, ledger
+    keeps max expiry (FOREVER wins), cursor keeps the fresh tip."""
+    import ci_merge
+    if fname == "seen_ledger.json":
+        return (ci_merge.union_ledger(old_text, cur_text) if old_text.strip()
+                else cur_text)
+    if fname == "keyword_cursor.json":
+        return cur_text or old_text
+    header = ("priority_score" if ("results" in fname or "nodiscord" in fname)
+              else "title")
+    return (ci_merge.union_csv(old_text, cur_text, header) if old_text.strip()
+            else cur_text)
+
+
 def api_git_pull(body):
-    """One-click cloud fetch: `git pull --ff-only` (never merges, never risks
-    the local tree) followed by a normal sync. Returns short pull output plus
-    the sync counts, so the UI can show everything in one toast."""
+    """One-click cloud fetch that tolerates locally-modified data files. Your
+    own rejects rewrite seen_ledger.json constantly, so a strict pull would
+    refuse almost every time -- instead: set untracked feed files aside, stash
+    tracked data dirt, fast-forward, fold everything back in with union
+    semantics (never a text merge on appends), then sync. Local CODE edits
+    still refuse loudly (resolve in a terminal)."""
     import subprocess
+
+    def run(*a):
+        try:
+            p = subprocess.run(list(a), capture_output=True, text=True, timeout=120)
+        except FileNotFoundError:
+            return 127, "git is not installed or not on PATH"
+        except subprocess.TimeoutExpired:
+            return 124, "git command timed out (network?) -- try again"
+        return p.returncode, (p.stdout + p.stderr).strip()
+
+    def restore_backup(aside_dir):
+        for f in DATA_FEED_FILES:
+            src = os.path.join(aside_dir, f)
+            if os.path.exists(src):
+                shutil.move(src, f)
+
+    rc, ls = run("git", "ls-files")
+    tracked = set(ls.split()) if rc == 0 else set()
+    aside_dir = tempfile.mkdtemp(prefix="crm-pull-")
+    aside_untracked = []
     try:
-        p = subprocess.run(["git", "pull", "--ff-only"], capture_output=True,
-                           text=True, timeout=120)
-        out = (p.stdout + p.stderr).strip()
-    except FileNotFoundError:
-        return {"error": "git is not installed or not on PATH"}
-    except subprocess.TimeoutExpired:
-        return {"error": "git pull timed out (network?) -- try again"}
-    if p.returncode != 0:
-        hint = ("Local files changed (a local watcher run?). "
-                "Stop start_finder.bat and report this." if "would be overwritten" in out
-                else "Resolve it in a terminal, then Sync.")
-        return {"error": f"pull refused (no merge attempted, nothing changed): {out[:300]} {hint}"}
+        for f in DATA_FEED_FILES:   # untracked feed files would block the pull too
+            if os.path.exists(f) and f not in tracked:
+                shutil.move(f, os.path.join(aside_dir, f))
+                aside_untracked.append(f)
+        rc, out = run("git", "stash", "push", "-m", "crm-autopull", "--",
+                      *[f for f in DATA_FEED_FILES if f in tracked])
+        if rc not in (0, 1):
+            restore_backup(aside_dir)
+            return {"error": f"could not stash local data ({out[:200]}) -- report this."}
+        rc, lst = run("git", "stash", "list")
+        stashed = "crm-autopull" in lst
+        rc, out = run("git", "pull", "--ff-only")
+        if rc != 0:
+            if stashed:
+                run("git", "stash", "pop")   # pull touched nothing, pop restores exactly
+            restore_backup(aside_dir)
+            hint = ("Local CODE files changed -- resolve it in a terminal, then Sync."
+                    if "would be overwritten" in out
+                    else "Resolve it in a terminal, then Sync.")
+            return {"error": f"pull refused (no merge attempted, nothing changed): {out[:300]} {hint}"}
+        if stashed:
+            for f in DATA_FEED_FILES:
+                p = subprocess.run(["git", "show", "stash@{0}:" + f], capture_output=True,
+                                   text=True, encoding="utf-8", errors="replace", timeout=30)
+                old = p.stdout if p.returncode == 0 else ""
+                if not old.strip():
+                    continue
+                try:
+                    with open(f, encoding="utf-8-sig") as fh:
+                        cur = fh.read()
+                except OSError:
+                    cur = ""
+                merged = _union_data_text(f, old, cur)
+                if merged.strip():
+                    with open(f, "w", encoding="utf-8", newline="") as fh:
+                        fh.write(merged if merged.endswith("\n") else merged + "\n")
+            run("git", "stash", "drop")
+        for f in aside_untracked:   # origin may track them now; union either way
+            src = os.path.join(aside_dir, f)
+            try:
+                with open(src, encoding="utf-8-sig") as fh:
+                    old = fh.read()
+            except OSError:
+                continue
+            try:
+                with open(f, encoding="utf-8-sig") as fh:
+                    cur = fh.read()
+            except OSError:
+                cur = ""
+            merged = _union_data_text(f, old, cur)
+            if merged.strip():
+                with open(f, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(merged if merged.endswith("\n") else merged + "\n")
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+    finally:
+        try:
+            os.rmdir(aside_dir)
+        except OSError:
+            pass
     sync_res = do_sync()
     first = next((l for l in out.splitlines() if l.strip()), "already up to date")
     sync_res.update({"ok": True, "pull": first[:160]})
