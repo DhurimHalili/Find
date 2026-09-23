@@ -232,6 +232,14 @@ function statusPill(s){
   const m = STATUS_META[s] || STATUS_META.new;
   return `<span class="pill" style="background:${m.c}14;color:${m.c};border:1px solid ${m.c}33"><span class="dot"></span>${m.l}</span>`;
 }
+function discordCell(e){
+  if(!e) return `<span style="color:var(--mut2)">—</span>`;
+  if(e.has_discord === "YES")
+    return `<span class="live">✔</span> <b>${fmt(e.discord_members)}</b> <span class="under">mem</span>
+      ${e.discord_url ? `<button class="copy" data-copy="${esc(e.discord_url)}" title="${esc(e.discord_url)}">copy ⧉</button>` : ""}`;
+  if(e.discord_url) return `<span class="dead">✖ dead link</span>`;
+  return `<span style="color:var(--mut2)">—</span>`;
+}
 function statusSelect(g){
   const opts = S.statuses.map(s => `<option value="${s}" ${s===g.status?"selected":""}>${STATUS_META[s].l}</option>`).join("");
   return `<select class="status" data-act="status" data-uid="${g.universe_id}" style="color:${STATUS_META[g.status]?.c||"#fff"};border-color:${(STATUS_META[g.status]?.c||"#888")}55">${opts}</select>`;
@@ -562,6 +570,7 @@ function renderRadar(){
     </select>
     <label class="chk"><input type="checkbox" id="rGrad" ${R.gradOnly?"checked":""}> Near tier (≤100 CCU away)</label>
     <div class="spacer"></div>
+    <button class="btn sm" id="scanRadarBtn" title="Full Discord check on these rows (slow, background, resumable)">✉ Scan discords</button>
     <button class="btn sm bad" id="radarClearBtn">✕ Clear radar</button>
     <span class="tag">${list.length}/${(S.radar || []).length} shown · ${rising} rising</span>
   </div>
@@ -570,7 +579,7 @@ function renderRadar(){
     A riser here today is a pipeline match tomorrow — <b>Track</b> pulls it in with full Discord enrichment now.
     The <b>Tier gap</b> column shows how far each game is from graduating.</span>
   </div>
-  ${list.length ? `<table><thead><tr><th>Game</th><th>CCU now</th><th>Peak</th><th>Trend</th><th>Tier gap</th>
+  ${list.length ? `<table><thead><tr><th>Game</th><th>CCU now</th><th>Peak</th><th>Trend</th><th>Tier gap</th><th>Discord</th>
     <th>Visits</th><th>Seen</th><th>Last seen</th><th></th></tr></thead><tbody>
     ${list.map(e => `
       <tr data-uid="${e.universe_id}" style="cursor:default">
@@ -580,6 +589,7 @@ function renderRadar(){
         <td class="num">${fmt(e.peak_active)}</td>
         <td>${radarTrend(e).html}</td>
         <td>${radarGapTag(e)}</td>
+        <td>${discordCell(e)}</td>
         <td class="num">${fmt(e.visits)}</td>
         <td class="num">${e.sightings || 1}×</td>
         <td class="under">${rel(e.last_seen ? (e.last_seen.length === 16 ? e.last_seen.replace(" ","T") + "Z" : e.last_seen) : null)}</td>
@@ -620,6 +630,8 @@ function renderRadar(){
         refresh();
       });
   };
+  const sc = $("#scanRadarBtn");
+  if(sc) sc.onclick = () => startScan("radar");
   document.querySelectorAll("[data-openurl]").forEach(b => b.onclick = e => {
     e.stopPropagation(); window.open(b.dataset.openurl, "_blank");
   });
@@ -648,9 +660,10 @@ function renderNoDiscord(){
     Check back: if a community appears, the watcher imports them automatically.
     <b>Track</b> pulls one in anyway with full enrichment.</span>
     <div class="spacer"></div>
+    <button class="btn sm" id="scanNoDiscBtn" title="Full Discord check on these rows (slow, background, resumable)">✉ Scan discords</button>
     <span class="tag">${N.length} tracked</span>
   </div>
-  ${N.length ? `<table><thead><tr><th>Score</th><th>Tier</th><th>Game</th><th>CCU</th>
+  ${N.length ? `<table><thead><tr><th>Score</th><th>Tier</th><th>Game</th><th>CCU</th><th>Discord</th>
     <th>Visits</th><th>Age</th><th>Seen</th><th>Last seen</th><th></th></tr></thead><tbody>
     ${N.map(e => `
       <tr data-uid="${e.universe_id}" style="cursor:default">
@@ -659,6 +672,7 @@ function renderNoDiscord(){
         <td><div class="title" title="${esc(e.title)}">${esc(e.title)}</div>
             <div class="under">${esc(e.creator || "—")} · universe ${e.universe_id}</div></td>
         <td class="num">${fmt(e.active)}</td>
+        <td>${discordCell(e)}</td>
         <td class="num">${fmt(e.visits)}</td>
         <td class="num">${e.age_days === "" || e.age_days === undefined ? "—" : e.age_days + "d"}</td>
         <td class="num">${e.sightings || 1}×</td>
@@ -675,6 +689,8 @@ function renderNoDiscord(){
   document.querySelectorAll("[data-openurl]").forEach(b => b.onclick = e => {
     e.stopPropagation(); window.open(b.dataset.openurl, "_blank");
   });
+  const snd = $("#scanNoDiscBtn");
+  if(snd) snd.onclick = () => startScan("nodiscord");
   document.querySelectorAll("[data-radreject]").forEach(b => b.onclick = e => {
     e.stopPropagation();
     const uid = b.dataset.radreject;
@@ -1092,6 +1108,41 @@ $("#refreshAllBtn").addEventListener("click", async () => {
   if(!refreshTimer) refreshTimer = setInterval(pollRefresh, 5000);
   pollRefresh();
 });
+
+/* ---------- discord scan (radar / no-discord lists) ---------- */
+let scanTimer = null, scanWasRunning = false;
+async function pollScan(){
+  let r = null;
+  try { r = await api("/api/scan_status", {}); } catch(e){ return; }
+  for(const id of ["#scanRadarBtn", "#scanNoDiscBtn"]){
+    const btn = $(id);
+    if(!btn) continue;
+    if(r.running){
+      btn.disabled = true;
+      btn.innerHTML = `✉ ${r.done}/${r.total}…`;
+      btn.title = r.current ? `Scanning: ${r.current} (${r.found ?? 0} discords found)` : "Scanning…";
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = "✉ Scan discords";
+    }
+  }
+  if(!r.running && scanWasRunning){
+    scanWasRunning = false;
+    if(scanTimer){ clearInterval(scanTimer); scanTimer = null; }
+    toast(`Scan finished: ${r.done ?? 0} checked · ${r.found ?? 0} live discords${r.errors ? ` · ${r.errors} failed` : ""}`, r.errors ? "" : "ok");
+    refresh();
+  }
+  if(r.running) scanWasRunning = true;
+}
+async function startScan(scope){
+  const r = await api("/api/radar_scan", {scope});
+  if(r.error) return toast(r.error, "err");
+  if(r.already){ toast(`Scan already running (${r.done}/${r.total})…`); }
+  else if(!r.total){ return toast("Nothing to scan — every entry already has a live Discord", "ok"); }
+  else toast(`Scanning ${r.total} games in background — stalest first`, "ok");
+  if(!scanTimer) scanTimer = setInterval(pollScan, 5000);
+  pollScan();
+}
 document.addEventListener("keydown", e => {
   if(e.key === "/" && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA"){
     e.preventDefault(); $("#globalSearch").focus();
@@ -1102,6 +1153,9 @@ document.addEventListener("keydown", e => {
 refresh().then(async () => { await doSync(false); await refresh();
   try { const r = await api("/api/refresh_status", {});
     if(r.running && !refreshTimer) refreshTimer = setInterval(pollRefresh, 5000);
+  } catch(e){}
+  try { const s = await api("/api/scan_status", {});
+    if(s.running && !scanTimer) scanTimer = setInterval(pollScan, 5000);
   } catch(e){}
 });
 setInterval(() => { if(!OPEN_UID) refresh(); }, 45000);

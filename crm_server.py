@@ -861,6 +861,110 @@ def api_refresh_status(body):
     return {"ok": True, **_refresh_snapshot()}
 
 
+# ---------------------------------------------------------------- discord scan
+# "Scan discords": background full enrichment of radar / no-discord entries
+# (stats + owner + live Discord verify). Entries with an already-live Discord
+# are skipped; everything saves per entry, so stopping the CRM mid-run loses
+# nothing -- pressing the button again resumes with the remaining stale ones.
+_SCAN = {"running": False, "total": 0, "done": 0, "current": "",
+         "errors": 0, "found": 0, "started": None, "finished": None, "scope": ""}
+_SCAN_LOCK = threading.Lock()
+
+
+def _scan_snapshot():
+    with _SCAN_LOCK:
+        return dict(_SCAN)
+
+
+def api_radar_scan(body):
+    scope = (body.get("scope") or "radar").strip().lower()
+    if scope not in ("radar", "nodiscord", "all"):
+        return {"error": "scope must be radar, nodiscord or all"}
+    with _SCAN_LOCK:
+        if _SCAN["running"]:
+            return {"ok": True, "already": True, **dict(_SCAN)}
+    ids = body.get("universe_ids")
+    with _lock:
+        pools = []
+        if scope in ("radar", "all"):
+            pools.append("radar")
+        if scope in ("nodiscord", "all"):
+            pools.append("nodiscord")
+        jobs = []
+        for pool in pools:
+            for uid, e in DATA.get(pool, {}).items():
+                if isinstance(ids, list) and ids and str(to_i(uid)) not in \
+                        {str(to_i(x)) for x in ids}:
+                    continue
+                if (e.get("has_discord") == "YES" and e.get("discord_url")
+                        and "UNVERIFIED" not in str(e.get("discord_url"))):
+                    continue   # live discord already known; nothing to gain
+                jobs.append((pool, str(uid)))
+        # stalest first so interruptions still fix the worst rows
+        jobs.sort(key=lambda j: DATA.get(j[0], {}).get(j[1], {}).get("last_seen", "") or "")
+    with _SCAN_LOCK:
+        _SCAN.update({"running": True, "total": len(jobs), "done": 0,
+                      "current": "", "errors": 0, "found": 0,
+                      "started": utc_now(), "finished": None, "scope": scope})
+    threading.Thread(target=_scan_worker, args=(jobs,), daemon=True).start()
+    return {"ok": True, "total": len(jobs), "scope": scope}
+
+
+def _scan_worker(jobs):
+    client = make_client()
+    try:
+        client.delay = 0.2
+        client.limiter = rf.RateLimiter(1.0 / 0.2)
+    except Exception:
+        pass
+    for pool, uid in jobs:
+        with _lock:
+            e = DATA.get(pool, {}).get(uid)
+            title = (e or {}).get("title", uid)
+        with _SCAN_LOCK:
+            _SCAN["current"] = title
+        try:
+            row = enrich_one(client, to_i(uid))
+        except Exception:
+            row = None
+        with _lock:
+            e = DATA.get(pool, {}).get(uid)
+            if e and row:
+                e.update({"title": row.get("title") or e.get("title"),
+                          "game_url": row.get("game_url") or e.get("game_url"),
+                          "creator": row.get("creator_name") or e.get("creator"),
+                          "active": row.get("active", e.get("active")),
+                          "visits": row.get("visits", e.get("visits")),
+                          "peak_active": max(to_i(e.get("peak_active")),
+                                             to_i(row.get("active"))),
+                          "has_discord": "YES" if row.get("has_discord") == "YES" else "",
+                          "discord_url": row.get("discord_url", ""),
+                          "discord_server": row.get("discord_server", ""),
+                          "discord_members": row.get("discord_members", ""),
+                          "discord_online": row.get("discord_online", ""),
+                          "discord_via": row.get("discord_via", ""),
+                          "sightings": e.get("sightings", 1) + 1,
+                          "last_seen": row.get("checked_at_utc") or e.get("last_seen")})
+                if e["has_discord"]:
+                    with _SCAN_LOCK:
+                        _SCAN["found"] += 1
+                save_data()
+            with _SCAN_LOCK:
+                _SCAN["done"] += 1
+                if not row:
+                    _SCAN["errors"] += 1
+    with _lock:
+        log_act("scan", f"discord scan finished ({_SCAN['scope']}): {_SCAN['done']} "
+                        f"checked, {_SCAN['found']} with live Discord, {_SCAN['errors']} failed")
+        save_data()
+    with _SCAN_LOCK:
+        _SCAN.update({"running": False, "current": "", "finished": utc_now()})
+
+
+def api_scan_status(body):
+    return {"ok": True, **_scan_snapshot()}
+
+
 DATA_FEED_FILES = ["results_history.csv", "watchlist_history.csv",
                    "nodiscord_history.csv", "seen_ledger.json", "keyword_cursor.json"]
 
@@ -1064,6 +1168,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/check": lambda: api_check(body),
             "/api/refresh_all": lambda: api_refresh_all(body),
             "/api/refresh_status": lambda: api_refresh_status(body),
+            "/api/radar_scan": lambda: api_radar_scan(body),
+            "/api/scan_status": lambda: api_scan_status(body),
             "/api/pull": lambda: api_git_pull(body),
             "/api/settings": lambda: api_settings(body),
         }
