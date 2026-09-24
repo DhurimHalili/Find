@@ -38,7 +38,7 @@ HOST, PORT = "127.0.0.1", 8780
 START_TS = time.time()
 GOLDEN_WINDOWS = rf.parse_windows("12-16,20-2")   # mirrors the watcher's default schedule
 
-STATUSES = ["new", "contacted", "awaiting", "negotiating", "delayed", "acquired", "rejected"]
+STATUSES = ["new", "contacted", "awaiting", "negotiating", "delayed", "acquired", "rejected", "done"]
 INT_FIELDS = {"priority_score", "active", "peak_active_seen", "visits", "favorites", "likes",
               "dislikes", "like_ratio", "heat_active_per_1k_visits", "age_days",
               "discord_members", "discord_online", "group_members", "max_players"}
@@ -438,8 +438,8 @@ def do_sync():
                 title = DATA["deleted"][uid].get("title", uid)
                 del DATA["deleted"][uid]
                 log_act("sync", f"'{title}' cooldown expired -- re-admitted to pipeline")
-            if uid in DATA["games"] and DATA["games"][uid].get("status") == "rejected":
-                frozen += 1   # rejected games are frozen: sync never touches them again
+            if uid in DATA["games"] and DATA["games"][uid].get("status") in ("rejected", "done"):
+                frozen += 1   # rejected/done games are frozen: sync never touches them again
                 continue
             if uid in DATA.get("radar_rejected", {}):
                 frozen += 1   # radar-rejected: same promise, never imported either
@@ -492,7 +492,7 @@ def do_sync():
         except (OSError, ValueError):
             ledger = {}
         for u, g in DATA["games"].items():
-            if (g.get("status") or "new") == "rejected" and ledger.get(str(u)) != FOREVER:
+            if (g.get("status") or "new") in ("rejected", "done") and ledger.get(str(u)) != FOREVER:
                 ledger[str(u)] = FOREVER
                 healed += 1
         for u in DATA.get("radar_rejected", {}):
@@ -578,11 +578,13 @@ def api_status(body):
                 # reset to untouched: a misclick-undo (or a fresh approach)
                 # leaves no stale "contacted ..." trace behind
                 g["contacted_at"] = None
-            if status == "rejected":
+            if status in ("rejected", "done"):
                 mark_permanent_skip(uid)
-                log_act("status", f"'{g.get('title', uid)}' REJECTED -- permanently excluded from scanning")
+                how = ("REJECTED -- permanently excluded from scanning" if status == "rejected"
+                       else "marked DONE -- archived, never scanned again")
+                log_act("status", f"'{g.get('title', uid)}' {how}")
             else:
-                if old == "rejected":
+                if old in ("rejected", "done"):
                     clear_permanent_skip(uid)
                 log_act("status", f"'{g.get('title', uid)}': {old} -> {status}")
             save_data()
@@ -605,6 +607,9 @@ def api_delete(body):
     if uid not in DATA["games"]:
         return {"error": "unknown game"}
     with _lock:
+        g = DATA["games"][uid]
+        if (g.get("status") or "new") in ("rejected", "done"):
+            return {"error": "permanent (rejected/done) -- change its status first if you really want it back in rotation"}
         g = DATA["games"].pop(uid)
         title = g.get("title", uid)
         DATA["deleted"][uid] = {"title": title, "deleted_at": utc_now(), "row": g}
@@ -617,7 +622,7 @@ def api_delete(body):
 def api_delete_all(body):
     """Bulk delete: moves every listed game to cooldown-deleted. The client
     sends exactly the universe_ids it shows (filtered view), so the user
-    deletes precisely what they see. Rejected games are permanent-skips, not
+    deletes precisely what they see. Rejected/done games are permanent, not
     cooldown deletes, so they are left untouched."""
     ids = body.get("universe_ids") or []
     if not isinstance(ids, list):
@@ -627,7 +632,7 @@ def api_delete_all(body):
         for raw in ids[:5000]:
             uid = str(to_i(raw))
             g = DATA["games"].get(uid)
-            if not g or (g.get("status") or "new") == "rejected":
+            if not g or (g.get("status") or "new") in ("rejected", "done"):
                 continue
             DATA["games"].pop(uid)
             DATA["deleted"][uid] = {"title": g.get("title", uid),
@@ -811,7 +816,7 @@ def api_refresh_all(body):
             uids = [u for u in DATA["games"] if u in wanted]
         else:
             uids = list(DATA["games"].keys())
-        uids = [u for u in uids if (DATA["games"][u].get("status") or "new") != "rejected"]
+        uids = [u for u in uids if (DATA["games"][u].get("status") or "new") not in ("rejected", "done")]
         uids.sort(key=lambda u: DATA["games"][u].get("checked_at_utc", "") or "")
     with _REFRESH_LOCK:
         _REFRESH.update({"running": True, "total": len(uids), "done": 0,

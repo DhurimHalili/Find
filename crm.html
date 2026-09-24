@@ -176,6 +176,7 @@
       <button data-v="pipeline"><span class="ic">▤</span>Pipeline<span class="n" id="navPipeline">0</span></button>
       <button data-v="radar"><span class="ic">◎</span>Early radar<span class="n" id="navRadar">0</span></button>
       <button data-v="nodiscord"><span class="ic">○</span>No Discord<span class="n" id="navNoDiscord">0</span></button>
+      <button data-v="done"><span class="ic">✔</span>Done<span class="n" id="navDone">0</span></button>
       <button data-v="deleted"><span class="ic">⌫</span>Deleted<span class="n" id="navDeleted">0</span></button>
       <button data-v="activity"><span class="ic">≡</span>Activity</button>
       <button data-v="settings"><span class="ic">⚙</span>Settings &amp; Tools</button>
@@ -218,7 +219,8 @@ const fmt = n => (n === "" || n === null || n === undefined || isNaN(Number(n)))
 const STATUS_META = {
   new:{l:"New",c:"#60a5fa"}, contacted:{l:"Contacted",c:"#f59e0b"}, awaiting:{l:"Awaiting reply",c:"#a78bfa"},
   negotiating:{l:"Negotiating",c:"#fb923c"}, delayed:{l:"Delayed",c:"#22d3ee"},
-  acquired:{l:"Acquired",c:"#34d399"}, rejected:{l:"Rejected",c:"#f87171"}};
+  acquired:{l:"Acquired",c:"#34d399"}, rejected:{l:"Rejected",c:"#f87171"},
+  done:{l:"Done",c:"#2dd4bf"}};
 const TIER_META = {
   "1-BEST (MUST BUY)":{l:"BEST",c:"#fbbf24"}, "2-GREAT":{l:"GREAT",c:"#22d3ee"},
   "3-GOOD":{l:"GOOD",c:"#60a5fa"}, "4-MID":{l:"MID",c:"#94a3b8"}};
@@ -301,9 +303,10 @@ function fmtDur(s){
 }
 async function refresh(){
   S = await api("/api/state");
-  $("#navPipeline").textContent = S.games.filter(g => (g.status||"new") !== "rejected").length;
+  $("#navPipeline").textContent = S.games.filter(g => !["rejected","done"].includes(g.status||"new")).length;
   $("#navRadar").textContent = (S.radar || []).length;
   $("#navNoDiscord").textContent = (S.nodiscord || []).length;
+  $("#navDone").textContent = S.games.filter(g => (g.status||"new") === "done").length;
   $("#navDeleted").textContent = S.deleted.length;
   $("#footCounts").textContent = `${S.games.length} games · ${S.games.filter(g=>g.has_discord==="YES").length} live discords`;
   renderRuntime();
@@ -354,6 +357,7 @@ const TITLES = {
   pipeline:["Pipeline","Every qualified game — click a row for full details"],
   radar:["Early radar","Near-misses (50+ CCU) — risers graduate to the pipeline automatically"],
   nodiscord:["No Discord","Qualified games with zero online presence — no Discord, no socials, owner silent"],
+  done:["Done","Finished games — bought, dead deals, reviewed. Never scanned, never touched. Click a row for full details"],
   deleted:["Deleted","Hidden games — they can return after the cooldown"],
   activity:["Activity","Everything that happened, newest first"],
   settings:["Settings & Tools","Tune the system, add games by hand, export data"]};
@@ -367,7 +371,7 @@ function setView(v){
 }
 function render(){
   if(!S){ $("#view").innerHTML = `<div class="empty">loading…</div>`; return; }
-  ({dashboard:renderDashboard, pipeline:renderPipeline, radar:renderRadar, nodiscord:renderNoDiscord, deleted:renderDeleted,
+  ({dashboard:renderDashboard, pipeline:renderPipeline, radar:renderRadar, nodiscord:renderNoDiscord, done:renderDone, deleted:renderDeleted,
     activity:renderActivity, settings:renderSettings})[VIEW]();
 }
 
@@ -430,7 +434,7 @@ function pipelineRows(){
                            g.discord_via,g.other_links,g.notes,
                             g.youtube,g.tiktok,g.twitter_x,g.genre].join(" ").toLowerCase().includes(q));
   if(F.status) G = G.filter(g => (g.status||"new") === F.status);
-  else G = G.filter(g => (g.status||"new") !== "rejected");   // rejected hidden unless explicitly filtered
+  else G = G.filter(g => !["rejected","done"].includes(g.status||"new"));   // hidden unless explicitly filtered
   if(F.tier === "none") G = G.filter(g => !g.tier);
   else if(F.tier) G = G.filter(g => (g.tier||"") === F.tier);
   if(F.discordOnly) G = G.filter(g => g.has_discord === "YES");
@@ -712,6 +716,56 @@ function renderNoDiscord(){
         refresh();
       });
   });
+}
+
+/* ---------- done (archive) ---------- */
+let DN = { q: "", tier: "" };
+function doneRows(){
+  let G = S.games.filter(g => (g.status||"new") === "done");
+  const q = DN.q.trim().toLowerCase();
+  if(q) G = G.filter(g => [g.title,g.creator_name,g.owner_name,g.discord_server,
+                           g.discord_url,g.notes,g.genre].join(" ").toLowerCase().includes(q));
+  if(DN.tier === "none") G = G.filter(g => !g.tier);
+  else if(DN.tier) G = G.filter(g => (g.tier||"") === DN.tier);
+  return G.sort((a,b) => ((b.priority_score||0) - (a.priority_score||0)));
+}
+function renderDone(){
+  const rows = doneRows();
+  $("#view").innerHTML = `
+  <div class="filters">
+    <input id="dQ" placeholder="Search archive — names, owners, notes…" value="${esc(DN.q)}">
+    <select id="dTier"><option value="">All tiers</option>${Object.keys(TIER_META).map(t=>`<option ${DN.tier===t?"selected":""} value="${t}">${TIER_META[t].l}</option>`).join("")}<option ${DN.tier==="none"?"selected":""} value="none">Unranked</option></select>
+    <div class="spacer"></div>
+    <span class="tag">${rows.length} archived</span>
+  </div>
+  <table><thead><tr>
+    <th>Score</th><th>Tier</th><th>Status</th><th>Game</th><th>CCU</th><th>Visits</th><th>Discord</th>
+    <th>Owner</th><th>Age</th><th>Checked</th><th></th>
+  </tr></thead><tbody>
+  ${rows.map(g => `
+    <tr data-open="${g.universe_id}">
+      <td class="num" style="color:var(--acc2)">${g.priority_score ?? "—"}</td>
+      <td>${tierBadge(g.tier)}</td>
+      <td>${statusSelect(g)}</td>
+      <td><div class="title" title="${esc(g.title)}">${esc(g.title)}</div>
+          <div class="under">${esc(g.creator_type||"?")} · ${esc(g.creator_name||"—")}</div></td>
+      <td class="num">${fmt(g.active)}<div class="under">peak ${fmt(g.peak_active_seen)}</div></td>
+      <td class="num">${fmt(g.visits)}</td>
+      <td>${discordCell(g)}</td>
+      <td><div class="title" style="max-width:150px" title="${esc(g.owner_name)}">${esc(g.owner_name||"—")}</div></td>
+      <td class="num">${g.age_days === "" || g.age_days === undefined ? "—" : g.age_days + "d"}</td>
+      <td class="under">${rel(checkedTs(g))}</td>
+      <td style="white-space:nowrap">
+        <button class="iconbtn" data-act="open" data-uid="${g.universe_id}" title="Open in Roblox">↗</button>
+      </td>
+    </tr>`).join("")}
+  </tbody></table>
+  ${rows.length ? "" : `<div class="empty">Archive is empty — set any game's status to Done to file it here. It will never be scanned or synced again.</div>`}`;
+
+  $("#dQ").oninput = e => { DN.q = e.target.value; render();
+    const el = $("#dQ"); el.focus(); const i = DN.q.length;
+    try{ el.setSelectionRange(i,i); }catch(err){} };
+  $("#dTier").onchange = e => { DN.tier = e.target.value; render(); };
 }
 
 /* ---------- deleted ---------- */
