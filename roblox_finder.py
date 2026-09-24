@@ -1041,7 +1041,7 @@ def discover_sorts(client, max_pages, prefilter, workers):
 
 def discover_recommendations(client, universe_id):
     """One game's recommendations -> {universe_id: source}. Pure worker."""
-    data = client.get(RECS_API.format(universe_id), {"maxRows": 12}, key="recommendations")
+    data = client.get(RECS_API.format(universe_id), {"maxRows": 25}, key="recommendations")
     found = {}
     if data:
         for g in data.get("games", []):
@@ -1440,7 +1440,7 @@ def main():
                     help="CSV file(s) with a universe_id column to re-check every pass "
                          "(e.g. watchlist_history.csv = yesterday's near-misses get "
                          "fresh stats until they graduate or cool; repeatable)")
-    ap.add_argument("--seed-max", type=int, default=150,
+    ap.add_argument("--seed-max", type=int, default=300,
                     help="max recent IDs taken per seed file (newest rows first)")
     ap.add_argument("--no-prefilter", action="store_true", help="don't skip <50-player search results")
     ap.add_argument("--delay", type=float, default=0.35,
