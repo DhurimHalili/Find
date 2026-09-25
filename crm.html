@@ -234,12 +234,17 @@ function statusPill(s){
   const m = STATUS_META[s] || STATUS_META.new;
   return `<span class="pill" style="background:${m.c}14;color:${m.c};border:1px solid ${m.c}33"><span class="dot"></span>${m.l}</span>`;
 }
+function discordVia(e){
+  if(!e || !e.discord_via) return "";
+  return `<div class="under" title="${esc(e.discord_via)}">via ${esc(
+    e.discord_via.length > 42 ? e.discord_via.slice(0, 42) + "…" : e.discord_via)}</div>`;
+}
 function discordCell(e){
   if(!e) return `<span style="color:var(--mut2)">—</span>`;
   if(e.has_discord === "YES")
     return `<span class="live">✔</span> <b>${fmt(e.discord_members)}</b> <span class="under">mem</span>
-      ${e.discord_url ? `<button class="copy" data-copy="${esc(e.discord_url)}" title="${esc(e.discord_url)}">copy ⧉</button>` : ""}`;
-  if(e.discord_url) return `<span class="dead">✖ dead link</span>`;
+      ${e.discord_url ? `<button class="copy" data-copy="${esc(e.discord_url)}" title="${esc(e.discord_url)}">copy ⧉</button>` : ""}${discordVia(e)}`;
+  if(e.discord_url) return `<span class="dead">✖ dead link</span>${discordVia(e)}`;
   return `<span style="color:var(--mut2)">—</span>`;
 }
 function statusSelect(g){

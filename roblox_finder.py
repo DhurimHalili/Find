@@ -1207,14 +1207,14 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
                 gname = (gd or {}).get("name", "") or f"group {gid}"
                 if gd:
                     if gd.get("description"):
-                        texts.append((f"owned group description: {gname}", gd["description"]))
+                        texts.append((f"owned group description (same owner, other community): {gname}", gd["description"]))
                     shout = group_shout_text(gd)
                     if shout:
-                        texts.append((f"owned group shout: {gname}", shout))
+                        texts.append((f"owned group shout (same owner, other community): {gname}", shout))
                 sl = client.get(GROUP_SOCIAL_API.format(gid), key="group-social-links")
                 for l in (sl or {}).get("data", []):
                     links.append((l.get("type", ""), l.get("url", ""), l.get("title", ""),
-                                  f"owned group socials: {gname}"))
+                                  f"owned group socials (same owner, other community): {gname}"))
             if owned or skipped:
                 tsay(f"   ecosystem: {owned} owned groups scanned, {skipped} member groups ignored")
         if ctype == "User" and cid:
@@ -1224,7 +1224,7 @@ def fetch_creator_ecosystem_texts(client, ctype, cid, owner_id):
             if other:
                 for g in fetch_details(client, other).values():
                     if g.get("description"):
-                        texts.append((f"creator's other game: {g.get('name', g.get('id'))}",
+                        texts.append((f"creator's other game (same dev): {g.get('name', g.get('id'))}",
                                       g["description"]))
     except Exception:
         pass   # ecosystem scan is best-effort enrichment -- never break the pass
