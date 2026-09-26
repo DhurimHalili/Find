@@ -174,6 +174,8 @@
     <nav id="nav">
       <button data-v="dashboard"><span class="ic">◈</span>Dashboard</button>
       <button data-v="pipeline"><span class="ic">▤</span>Pipeline<span class="n" id="navPipeline">0</span></button>
+      <button data-v="acquired"><span class="ic">★</span>Acquired<span class="n" id="navAcquired">0</span></button>
+      <button data-v="contacted"><span class="ic">✉</span>Contacted<span class="n" id="navContacted">0</span></button>
       <button data-v="radar"><span class="ic">◎</span>Early radar<span class="n" id="navRadar">0</span></button>
       <button data-v="nodiscord"><span class="ic">○</span>No Discord<span class="n" id="navNoDiscord">0</span></button>
       <button data-v="done"><span class="ic">✔</span>Done<span class="n" id="navDone">0</span></button>
@@ -308,7 +310,9 @@ function fmtDur(s){
 }
 async function refresh(){
   S = await api("/api/state");
-  $("#navPipeline").textContent = S.games.filter(g => !["rejected","done"].includes(g.status||"new")).length;
+  $("#navPipeline").textContent = S.games.filter(g => !["rejected","done","acquired","contacted"].includes(g.status||"new")).length;
+  $("#navAcquired").textContent = S.games.filter(g => (g.status||"new") === "acquired").length;
+  $("#navContacted").textContent = S.games.filter(g => (g.status||"new") === "contacted").length;
   $("#navRadar").textContent = (S.radar || []).length;
   $("#navNoDiscord").textContent = (S.nodiscord || []).length;
   $("#navDone").textContent = S.games.filter(g => (g.status||"new") === "done").length;
@@ -359,7 +363,9 @@ function gameById(uid){ return S.games.find(g => String(g.universe_id) === Strin
 /* ============================== views ============================== */
 const TITLES = {
   dashboard:["Dashboard","Pipeline health at a glance"],
-  pipeline:["Pipeline","Every qualified game — click a row for full details"],
+  pipeline:["Pipeline","Fresh opportunities — acquired, contacted, done and rejected live in their own tabs"],
+  acquired:["Acquired","Closed deals — full details on click"],
+  contacted:["Contacted","First touch made — awaiting lives in the pipeline"],
   radar:["Early radar","Near-misses (50+ CCU) — risers graduate to the pipeline automatically"],
   nodiscord:["No Discord","Qualified games with zero online presence — no Discord, no socials, owner silent"],
   done:["Done","Finished games — bought, dead deals, reviewed. Never scanned, never touched. Click a row for full details"],
@@ -376,7 +382,7 @@ function setView(v){
 }
 function render(){
   if(!S){ $("#view").innerHTML = `<div class="empty">loading…</div>`; return; }
-  ({dashboard:renderDashboard, pipeline:renderPipeline, radar:renderRadar, nodiscord:renderNoDiscord, done:renderDone, deleted:renderDeleted,
+  ({dashboard:renderDashboard, pipeline:renderPipeline, acquired:renderAcquired, contacted:renderContacted, radar:renderRadar, nodiscord:renderNoDiscord, done:renderDone, deleted:renderDeleted,
     activity:renderActivity, settings:renderSettings})[VIEW]();
 }
 
@@ -439,7 +445,7 @@ function pipelineRows(){
                            g.discord_via,g.other_links,g.notes,
                             g.youtube,g.tiktok,g.twitter_x,g.genre].join(" ").toLowerCase().includes(q));
   if(F.status) G = G.filter(g => (g.status||"new") === F.status);
-  else G = G.filter(g => !["rejected","done"].includes(g.status||"new"));   // hidden unless explicitly filtered
+  else G = G.filter(g => !["rejected","done","acquired","contacted"].includes(g.status||"new"));   // focused views live in their own tabs
   if(F.tier === "none") G = G.filter(g => !g.tier);
   else if(F.tier) G = G.filter(g => (g.tier||"") === F.tier);
   if(F.discordOnly) G = G.filter(g => g.has_discord === "YES");
@@ -723,25 +729,32 @@ function renderNoDiscord(){
   });
 }
 
-/* ---------- done (archive) ---------- */
-let DN = { q: "", tier: "" };
-function doneRows(){
-  let G = S.games.filter(g => (g.status||"new") === "done");
-  const q = DN.q.trim().toLowerCase();
+/* ---------- single-status tabs (acquired / contacted / done) ---------- */
+let ST = {acquired:{q:"",tier:""}, contacted:{q:"",tier:""}, done:{q:"",tier:""}};
+const ST_EMPTY = {
+  acquired:"No acquired games yet — close a deal from any row's status menu.",
+  contacted:"No contacted games yet — mark first touch from any row's status menu.",
+  done:"Archive is empty — set any game's status to Done to file it here. It will never be scanned or synced again."};
+const ST_COUNT = {acquired:"acquired", contacted:"contacted", done:"archived"};
+function statusRows(st){
+  const Flt = ST[st];
+  let G = S.games.filter(g => (g.status||"new") === st);
+  const q = Flt.q.trim().toLowerCase();
   if(q) G = G.filter(g => [g.title,g.creator_name,g.owner_name,g.discord_server,
                            g.discord_url,g.notes,g.genre].join(" ").toLowerCase().includes(q));
-  if(DN.tier === "none") G = G.filter(g => !g.tier);
-  else if(DN.tier) G = G.filter(g => (g.tier||"") === DN.tier);
+  if(Flt.tier === "none") G = G.filter(g => !g.tier);
+  else if(Flt.tier) G = G.filter(g => (g.tier||"") === Flt.tier);
   return G.sort((a,b) => ((b.priority_score||0) - (a.priority_score||0)));
 }
-function renderDone(){
-  const rows = doneRows();
+function renderStatusView(st){
+  const Flt = ST[st];
+  const rows = statusRows(st);
   $("#view").innerHTML = `
   <div class="filters">
-    <input id="dQ" placeholder="Search archive — names, owners, notes…" value="${esc(DN.q)}">
-    <select id="dTier"><option value="">All tiers</option>${Object.keys(TIER_META).map(t=>`<option ${DN.tier===t?"selected":""} value="${t}">${TIER_META[t].l}</option>`).join("")}<option ${DN.tier==="none"?"selected":""} value="none">Unranked</option></select>
+    <input id="sQ" placeholder="Search — names, owners, notes…" value="${esc(Flt.q)}">
+    <select id="sTier"><option value="">All tiers</option>${Object.keys(TIER_META).map(t=>`<option ${Flt.tier===t?"selected":""} value="${t}">${TIER_META[t].l}</option>`).join("")}<option ${Flt.tier==="none"?"selected":""} value="none">Unranked</option></select>
     <div class="spacer"></div>
-    <span class="tag">${rows.length} archived</span>
+    <span class="tag">${rows.length} ${ST_COUNT[st]}</span>
   </div>
   <table><thead><tr>
     <th>Score</th><th>Tier</th><th>Status</th><th>Game</th><th>CCU</th><th>Visits</th><th>Discord</th>
@@ -765,13 +778,16 @@ function renderDone(){
       </td>
     </tr>`).join("")}
   </tbody></table>
-  ${rows.length ? "" : `<div class="empty">Archive is empty — set any game's status to Done to file it here. It will never be scanned or synced again.</div>`}`;
+  ${rows.length ? "" : `<div class="empty">${ST_EMPTY[st]}</div>`}`;
 
-  $("#dQ").oninput = e => { DN.q = e.target.value; render();
-    const el = $("#dQ"); el.focus(); const i = DN.q.length;
+  $("#sQ").oninput = e => { Flt.q = e.target.value; render();
+    const el = $("#sQ"); el.focus(); const i = Flt.q.length;
     try{ el.setSelectionRange(i,i); }catch(err){} };
-  $("#dTier").onchange = e => { DN.tier = e.target.value; render(); };
+  $("#sTier").onchange = e => { Flt.tier = e.target.value; render(); };
 }
+function renderAcquired(){ renderStatusView("acquired"); }
+function renderContacted(){ renderStatusView("contacted"); }
+function renderDone(){ renderStatusView("done"); }
 
 /* ---------- deleted ---------- */
 function renderDeleted(){
