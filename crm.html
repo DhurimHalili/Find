@@ -490,7 +490,7 @@ function renderPipeline(){
       <td style="white-space:nowrap">
         <button class="iconbtn" data-act="open" data-uid="${g.universe_id}" title="Open in Roblox">↗</button>
         <button class="iconbtn" data-act="check" data-uid="${g.universe_id}" title="Refresh stats now">⟳</button>
-        <button class="iconbtn del" data-act="del" data-uid="${g.universe_id}" title="Delete (7-day cooldown)">✕</button>
+        <button class="iconbtn del" data-act="del" data-uid="${g.universe_id}" title="Delete (${S.settings.cooldown_days}d cooldown)">✕</button>
       </td>
     </tr>`).join("")}
   </tbody></table>

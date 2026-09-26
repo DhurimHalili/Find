@@ -81,7 +81,7 @@ def load_data():
     DATA.setdefault("nodiscord", {})
     DATA.setdefault("radar_rejected", {})
     DATA.setdefault("activity", [])
-    DATA.setdefault("settings", {"cooldown_days": 7})
+    DATA.setdefault("settings", {"cooldown_days": 3})
     DATA.setdefault("meta", {"created": utc_now(), "last_sync": None})
 
 
