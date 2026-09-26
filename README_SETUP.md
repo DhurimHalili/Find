@@ -115,7 +115,9 @@ enrichment + filter over every match already in results_history.csv and writes
 ## Do-not-buy exclusions
 
 Games are checked (title + description) before tiering and silently dropped if they are:
-**modded** (admin/owner panels, MODDED, x999…, free admin), **reuploaded** (uncopylocked,
+**modded** (admin/owner panels, admin abuse, ADMN, MODDED, x999…, free admin — title
+plus a tight description rule that ignores bare "admin"), **mount** (mount games,
+title or description), **reuploaded** (uncopylocked,
 leaked, copied, stolen, free model), **NSFW** (condo, 18+, sexy, …), or **non-English**
 (Cyrillic/CJK/Arabic/etc. titles or foreign-language keywords). Excluded games never seed
 the snowball or waste Discord checks. Each pass logs the counts per reason.

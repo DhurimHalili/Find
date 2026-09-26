@@ -97,8 +97,14 @@ NEAR_MISS_MIN_ACTIVE = 50                     # goes to watchlist + used as snow
 # DO-NOT-BUY EXCLUSIONS (modded / reuploaded / NSFW / non-English)
 # =============================================================================
 EXCL_MODDED_RE = re.compile(
-    r"\b(modded|mods?|modmenu|admin ?panels?|owner ?panels?|adminz|free ?admin|infs?|"
+    r"\b(modded|mods?|modmenu|admin ?panels?|admin ?abuse|admn|owner ?panels?|adminz|free ?admin|infs?|"
     r"uncopylocked|full ?source|place ?file)\b|\b[x\u00d7]\d{3,}|\b\d{3,}[x\u00d7]\b|\+\d{4,}\b", re.I)
+# Description-level modded tells. Deliberately NARROWER than the title rule:
+# bare "admin" is NOT here (legit games write "contact an admin"), only the
+# panel/menu/free-admin formats plus the x999/+9999 multipliers.
+EXCL_MODDED_DESC_RE = re.compile(
+    r"\b(admin ?panels?|owner ?panels?|modmenus?|free ?admin)\b"
+    r"|\b[x\u00d7]\d{3,}|\b\d{3,}[x\u00d7]\b|\+\d{4,}\b", re.I)
 EXCL_REUPLOAD_RE = re.compile(
     r"\b(re-?uploads?|uncopylocked|leaked|copys?|copied|stolen|free ?model|not ?my ?game)\b", re.I)
 EXCL_REUPLOAD_DESC_RE = re.compile(
@@ -118,7 +124,7 @@ EXCL_MOUNT_RE = re.compile(r"\bmount\b", re.I)
 
 def is_excluded(title, description=""):
     """Returns a rejection reason string, or None if the game passes the do-not-buy rules."""
-    t = title or ""
+    t, d = title or "", description or ""
     if EXCL_MODDED_RE.search(t):
         return "modded"
     if EXCL_NSFW_RE.search(t):
@@ -129,7 +135,11 @@ def is_excluded(title, description=""):
         return "reuploaded"
     if EXCL_FOREIGN_SCRIPT_RE.search(t) or EXCL_FOREIGN_WORDS_RE.search(t):
         return "non-english"
-    if EXCL_REUPLOAD_DESC_RE.search(description or ""):
+    if EXCL_MODDED_DESC_RE.search(d):
+        return "modded (description)"
+    if EXCL_MOUNT_RE.search(d):
+        return "mount (description)"
+    if EXCL_REUPLOAD_DESC_RE.search(d):
         return "reuploaded (description)"
     return None
 
